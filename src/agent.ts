@@ -10,6 +10,7 @@ import type { ContentPart } from './contracts/entities/content-part.js';
 import type { ContextInjection } from './core/context-builder.js';
 import { OpenRouterClient } from './llm/openrouter-client.js';
 import { ToolExecutor } from './tools/tool-executor.js';
+import { MCPAdapter, type MCPHealthStatus } from './tools/mcp-adapter.js';
 import { SkillManager } from './skills/skill-manager.js';
 import { MemoryManager } from './memory/memory-manager.js';
 import { KnowledgeManager } from './knowledge/knowledge-manager.js';
@@ -45,6 +46,7 @@ export class Agent {
   private readonly memoryManager?: MemoryManager;
   private readonly knowledgeManager?: KnowledgeManager;
   private readonly embeddingService?: EmbeddingService;
+  private readonly mcpAdapter: MCPAdapter;
   private database?: SQLiteDatabase;
   private costAccumulator: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   private destroyed = false;
@@ -60,6 +62,7 @@ export class Agent {
     });
 
     this.toolExecutor = new ToolExecutor();
+    this.mcpAdapter = new MCPAdapter(this.toolExecutor);
 
     // Conversation store
     if (config.conversation?.store) {
@@ -227,13 +230,18 @@ export class Agent {
     return this.conversations.getHistory(threadId ?? 'default');
   }
 
-  async connectMCP(_config: import('./config/config.js').MCPConnectionConfig): Promise<void> {
-    // MCP adapter is an optional feature — requires @modelcontextprotocol/sdk
-    throw new Error('MCP not implemented yet. Install @modelcontextprotocol/sdk and configure mcp in AgentConfig.');
+  async connectMCP(config: import('./config/config.js').MCPConnectionConfig): Promise<void> {
+    const tools = await this.mcpAdapter.connect(config);
+    this.logger.info('MCP connected', { name: config.name, tools: tools.length });
   }
 
-  async disconnectMCP(_name: string): Promise<void> {
-    throw new Error('MCP not implemented yet.');
+  async disconnectMCP(name: string): Promise<void> {
+    await this.mcpAdapter.disconnect(name);
+    this.logger.info('MCP disconnected', { name });
+  }
+
+  getHealth(): MCPHealthStatus {
+    return this.mcpAdapter.getHealth();
   }
 
   async remember(content: string, scope?: 'thread' | 'persistent' | 'learned'): Promise<Memory> {
@@ -258,6 +266,7 @@ export class Agent {
 
   async destroy(): Promise<void> {
     this.destroyed = true;
+    await this.mcpAdapter.disconnectAll();
     this.database?.close();
     this.logger.info('Agent destroyed');
   }
