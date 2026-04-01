@@ -186,6 +186,25 @@ describe('MCPAdapter', () => {
       expect(result).toContain('file content here');
     });
 
+    it('should timeout slow tool calls', async () => {
+      // Simulate a tool that takes too long
+      mockClient.callTool.mockImplementationOnce(() =>
+        new Promise((resolve) => setTimeout(() => resolve({ content: [{ type: 'text', text: 'late' }] }), 5000))
+      );
+
+      const tools = await adapter.connect({
+        name: 'slow-server',
+        transport: 'stdio',
+        command: 'node',
+        timeout: 100, // 100ms timeout
+      });
+
+      const result = await tools[0]!.execute({ path: '/tmp/test.txt' }, new AbortController().signal);
+      // Should return an error due to timeout, not hang forever
+      expect(typeof result === 'object' && 'isError' in result && result.isError).toBe(true);
+      expect(typeof result === 'object' && 'content' in result && (result.content as string)).toContain('error');
+    }, 10_000);
+
     it('should handle tool execution errors with isolateErrors', async () => {
       mockClient.callTool.mockRejectedValueOnce(new Error('tool crashed'));
 

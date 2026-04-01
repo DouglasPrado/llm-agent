@@ -39,9 +39,9 @@ Rules:
       onLimitReached: 'warn',
     },
 
-    maxIterations: 8,
+    maxIterations: 20,
     onToolError: 'continue',
-    logLevel: 'info',
+    logLevel: 'debug',
     dbPath: './data/agent.db',
   });
 
@@ -58,7 +58,7 @@ Rules:
         transport: 'sse',
         url: config.mcp.albert.url,
         headers: config.mcp.albert.headers,
-        timeout: 30_000,
+        timeout: 60_000,
       });
     } catch (error) {
       console.error('Failed to connect MCP albert:', error instanceof Error ? error.message : error);

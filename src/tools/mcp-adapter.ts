@@ -187,11 +187,19 @@ export class MCPAdapter {
           signal.addEventListener('abort', () => controller.abort(), { once: true });
 
           try {
-            const result = await client.callTool(
-              { name: mcpTool.name, arguments: args },
-              undefined,
-              { signal: controller.signal },
-            );
+            // Race the tool call against the timeout to guarantee we don't hang
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              controller.signal.addEventListener('abort', () => reject(new Error(`MCP tool "${mcpTool.name}" timed out after ${timeout}ms`)), { once: true });
+            });
+
+            const result = await Promise.race([
+              client.callTool(
+                { name: mcpTool.name, arguments: args },
+                undefined,
+                { signal: controller.signal },
+              ),
+              timeoutPromise,
+            ]);
 
             const textContent = result.content
               .filter(c => c.type === 'text' && c.text)

@@ -102,13 +102,17 @@ export async function handleMessage(ctx: Context): Promise<void> {
         case 'tool_call_start': {
           isSearching = true;
           const toolName = event.toolCall.function.name;
-          const statusMsg = toolName === 'web_search' ? '🔍 Searching...' : `⚙️ Using ${toolName}...`;
+          // Clean up MCP namespace for display: mcp__albert__list_companies → list_companies
+          const displayName = toolName.replace(/^mcp__[^_]+__/, '');
+          const statusMsg = `⚙️ ${displayName}...`;
 
           if (!sentMessage) {
             sentMessage = await ctx.reply(statusMsg);
           } else {
             await safeEdit(ctx, chatId, sentMessage.message_id, fullText + `\n\n_${statusMsg}_`);
           }
+          // Keep typing indicator alive during tool execution
+          await ctx.replyWithChatAction('typing').catch(() => {});
           break;
         }
 
@@ -116,6 +120,22 @@ export async function handleMessage(ctx: Context): Promise<void> {
           isSearching = false;
           // Refresh typing indicator
           await ctx.replyWithChatAction('typing').catch(() => {});
+          break;
+        }
+
+        case 'turn_start': {
+          // Refresh typing on each loop iteration so Telegram doesn't stop showing "typing"
+          await ctx.replyWithChatAction('typing').catch(() => {});
+          break;
+        }
+
+        case 'warning': {
+          if (event.code === 'max_iterations') {
+            console.warn('Max iterations reached for chat', chatId);
+          }
+          if (event.code === 'cost_warning') {
+            console.warn('Cost warning:', event.message);
+          }
           break;
         }
 
@@ -154,12 +174,6 @@ export async function handleMessage(ctx: Context): Promise<void> {
           break;
         }
 
-        case 'warning': {
-          if (event.code === 'cost_warning') {
-            console.warn('Cost warning:', event.message);
-          }
-          break;
-        }
       }
     }
 
