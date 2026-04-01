@@ -9,7 +9,7 @@ let agent: Agent | null = null;
  * Uses a singleton — one agent handles all Telegram chats.
  * Each chat is isolated via threadId = chatId.
  */
-export function getAgent(): Agent {
+export async function getAgent(): Promise<Agent> {
   if (agent) return agent;
 
   agent = Agent.create({
@@ -48,6 +48,21 @@ Rules:
   // Register tools
   for (const tool of createTools()) {
     agent.addTool(tool);
+  }
+
+  // Connect MCP servers
+  if (config.mcp.albert.url) {
+    try {
+      await agent.connectMCP({
+        name: 'albert',
+        transport: 'sse',
+        url: config.mcp.albert.url,
+        headers: config.mcp.albert.headers,
+        timeout: 30_000,
+      });
+    } catch (error) {
+      console.error('Failed to connect MCP albert:', error instanceof Error ? error.message : error);
+    }
   }
 
   return agent;

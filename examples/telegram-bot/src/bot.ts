@@ -3,8 +3,8 @@ import { config } from './config.js';
 import { getAgent, destroyAgent } from './agent-factory.js';
 import { handleStart, handleReset, handleUsage, handleMemory, handleMessage } from './handlers.js';
 
-// Initialize agent eagerly to fail fast on bad config
-getAgent();
+// Initialize agent (async — connects MCP servers)
+await getAgent();
 
 // Create bot
 const bot = new Bot(config.telegram.token);
@@ -41,6 +41,7 @@ bot.start({
     console.log(`Bot @${botInfo.username} started`);
     console.log(`Model: ${config.agent.model}`);
     console.log(`Tavily: ${config.tavily.apiKey ? 'enabled' : 'disabled'}`);
+    console.log(`MCP Albert: ${config.mcp.albert.url ? 'enabled' : 'disabled'}`);
     console.log(`Memory: enabled`);
     console.log('Waiting for messages...');
   },

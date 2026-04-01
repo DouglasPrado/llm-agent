@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentConfigInput } from './config/config.js';
+import type { AgentConfig, AgentConfigInput, MCPConnectionConfigInput } from './config/config.js';
 import { AgentConfigSchema } from './config/config.js';
 import type { AgentEvent } from './contracts/entities/agent-event.js';
 import type { AgentTool } from './contracts/entities/agent-tool.js';
@@ -230,8 +230,16 @@ export class Agent {
     return this.conversations.getHistory(threadId ?? 'default');
   }
 
-  async connectMCP(config: import('./config/config.js').MCPConnectionConfig): Promise<void> {
-    const tools = await this.mcpAdapter.connect(config);
+  async connectMCP(config: MCPConnectionConfigInput): Promise<void> {
+    // Apply defaults (timeout, maxRetries, etc.)
+    const parsed = {
+      ...config,
+      timeout: config.timeout ?? 30_000,
+      maxRetries: config.maxRetries ?? 3,
+      healthCheckInterval: config.healthCheckInterval ?? 60_000,
+      isolateErrors: config.isolateErrors ?? true,
+    };
+    const tools = await this.mcpAdapter.connect(parsed);
     this.logger.info('MCP connected', { name: config.name, tools: tools.length });
   }
 

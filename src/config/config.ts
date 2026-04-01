@@ -93,5 +93,6 @@ export type AgentConfigInput = z.input<typeof AgentConfigSchema>;
 /** Validated config type */
 export type AgentConfig = z.output<typeof AgentConfigSchema>;
 
-export type MCPConnectionConfig = z.infer<typeof MCPConnectionConfigSchema>;
+export type MCPConnectionConfig = z.output<typeof MCPConnectionConfigSchema>;
+export type MCPConnectionConfigInput = z.input<typeof MCPConnectionConfigSchema>;
 export type CostPolicy = z.infer<typeof CostPolicySchema>;

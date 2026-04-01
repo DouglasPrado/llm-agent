@@ -32,7 +32,7 @@ export async function handleReset(ctx: Context): Promise<void> {
   const resetKey = `reset_${chatId}`;
 
   // Store reset timestamp in memory so the agent knows
-  const agent = getAgent();
+  const agent = await getAgent();
   try {
     await agent.remember(`Conversation was reset by the user at ${new Date().toISOString()}`, 'thread');
   } catch {
@@ -46,7 +46,7 @@ export async function handleReset(ctx: Context): Promise<void> {
  * /usage command — show token usage
  */
 export async function handleUsage(ctx: Context): Promise<void> {
-  const agent = getAgent();
+  const agent = await getAgent();
   const usage = agent.getUsage();
 
   await ctx.reply(
@@ -69,7 +69,7 @@ export async function handleMemory(ctx: Context): Promise<void> {
     return;
   }
 
-  const agent = getAgent();
+  const agent = await getAgent();
   try {
     const mem = await agent.remember(text);
     await ctx.reply(`Saved: "${mem.content}" (confidence: ${mem.confidence})`);
@@ -86,7 +86,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
   if (!text) return;
 
   const chatId = ctx.chat!.id.toString();
-  const agent = getAgent();
+  const agent = await getAgent();
 
   // Show "typing" indicator
   await ctx.replyWithChatAction('typing');

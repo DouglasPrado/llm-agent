@@ -22,4 +22,12 @@ export const config = {
   tavily: {
     apiKey: process.env.TAVILY_API_KEY,
   },
+  mcp: {
+    albert: {
+      url: process.env.MCP_ALBERT_URL,
+      headers: process.env.MCP_ALBERT_TOKEN
+        ? { 'Authorization': `Bearer ${process.env.MCP_ALBERT_TOKEN}` }
+        : undefined,
+    },
+  },
 };

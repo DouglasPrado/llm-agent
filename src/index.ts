@@ -7,7 +7,7 @@ export * from './contracts/index.js';
 
 // Config
 export { AgentConfigSchema } from './config/config.js';
-export type { AgentConfig, AgentConfigInput, MCPConnectionConfig, CostPolicy } from './config/config.js';
+export type { AgentConfig, AgentConfigInput, MCPConnectionConfig, MCPConnectionConfigInput, CostPolicy } from './config/config.js';
 
 // Pluggable stores (for custom implementations)
 export { SQLiteMemoryStore } from './memory/sqlite-memory-store.js';
