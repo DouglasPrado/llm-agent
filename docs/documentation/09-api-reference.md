@@ -272,6 +272,7 @@ interface MCPConnectionConfig {
   command?: string;
   args?: string[];
   url?: string;
+  headers?: Record<string, string>;  // HTTP headers for SSE (auth tokens, etc.)
   timeout?: number;           // default: 30_000
   maxRetries?: number;         // default: 3
   healthCheckInterval?: number; // default: 60_000

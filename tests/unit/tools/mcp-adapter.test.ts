@@ -101,6 +101,36 @@ describe('MCPAdapter', () => {
       expect(mockClient.connect).toHaveBeenCalledOnce();
     });
 
+    it('should pass headers to SSE transport', async () => {
+      await adapter.connect({
+        name: 'auth-server',
+        transport: 'sse',
+        url: 'http://localhost:3001/sse',
+        headers: {
+          'Authorization': 'Bearer my-token',
+          'X-Custom': 'value',
+        },
+      });
+
+      expect(mockSSETransport).toHaveBeenCalledWith(
+        expect.any(URL),
+        { requestInit: { headers: { 'Authorization': 'Bearer my-token', 'X-Custom': 'value' } } },
+      );
+    });
+
+    it('should not pass requestInit when no headers', async () => {
+      await adapter.connect({
+        name: 'no-headers',
+        transport: 'sse',
+        url: 'http://localhost:3001/sse',
+      });
+
+      expect(mockSSETransport).toHaveBeenCalledWith(
+        expect.any(URL),
+        { requestInit: undefined },
+      );
+    });
+
     it('should namespace tool names with mcp__{server}__{tool}', async () => {
       const tools = await adapter.connect({
         name: 'my-server',
