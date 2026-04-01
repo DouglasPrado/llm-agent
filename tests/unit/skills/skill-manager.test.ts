@@ -105,4 +105,31 @@ describe('SkillManager', () => {
     const matches = await manager.match('any', { threadId: 't1' });
     expect(matches[0]!.name).toBe('high');
   });
+
+  it('should not call embedding service when no skills are registered', async () => {
+    const embedSingle = vi.fn();
+    const mgr = new SkillManager({
+      embeddingService: { embedSingle, embed: vi.fn() } as any,
+    });
+
+    // No skills registered — semantic match should be skipped entirely
+    const matches = await mgr.match('any input', { threadId: 't1' });
+    expect(matches).toHaveLength(0);
+    expect(embedSingle).not.toHaveBeenCalled();
+  });
+
+  it('should skip semantic match when all skills have prefix or custom match', async () => {
+    const embedSingle = vi.fn();
+    const mgr = new SkillManager({
+      embeddingService: { embedSingle, embed: vi.fn() } as any,
+    });
+
+    mgr.register(createSkill({ name: 'with-prefix', triggerPrefix: '/test' }));
+    mgr.register(createSkill({ name: 'with-match', match: () => false }));
+
+    // Input doesn't match prefix, custom returns false → no matches
+    // But semantic should NOT be called because all skills have explicit matchers
+    const matches = await mgr.match('random input', { threadId: 't1' });
+    expect(embedSingle).not.toHaveBeenCalled();
+  });
 });

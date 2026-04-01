@@ -53,8 +53,11 @@ export class SkillManager {
       }
     }
 
-    // 3. Semantic match (if embedding service available and no prefix/custom matches)
-    if (this.embeddingService && matches.length === 0) {
+    // 3. Semantic match — only if:
+    //    - embedding service is available
+    //    - no prefix/custom matches found
+    //    - there are skills registered that lack explicit matchers (need semantic)
+    if (this.embeddingService && matches.length === 0 && this.hasSkillsNeedingSemantic()) {
       const semanticMatches = await this.semanticMatch(input);
       matches.push(...semanticMatches);
     }
@@ -80,6 +83,17 @@ export class SkillManager {
     }
 
     return sorted.slice(0, this.maxActiveSkills).map(m => m.skill);
+  }
+
+  /**
+   * Returns true if any registered skill lacks both triggerPrefix and match(),
+   * meaning it can only be activated via semantic matching.
+   */
+  private hasSkillsNeedingSemantic(): boolean {
+    for (const skill of this.skills.values()) {
+      if (!skill.triggerPrefix && !skill.match) return true;
+    }
+    return false;
   }
 
   private async semanticMatch(input: string): Promise<SkillMatchResult[]> {
