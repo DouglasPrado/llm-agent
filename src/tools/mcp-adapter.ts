@@ -289,7 +289,11 @@ async function createTransport(config: MCPConnectionConfig): Promise<unknown> {
 
   if (config.transport === 'sse') {
     const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
-    return new SSEClientTransport(new URL(config.url!));
+    const url = new URL(config.url!);
+    const requestInit: RequestInit | undefined = config.headers
+      ? { headers: config.headers }
+      : undefined;
+    return new SSEClientTransport(url, { requestInit });
   }
 
   throw new Error(`Unsupported MCP transport: ${config.transport}`);

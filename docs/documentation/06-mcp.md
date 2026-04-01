@@ -39,6 +39,38 @@ await agent.connectMCP({
 });
 ```
 
+### SSE with Authentication (headers)
+
+Many remote MCP servers require authentication. Use the `headers` option to pass tokens or API keys:
+
+```typescript
+await agent.connectMCP({
+  name: 'private-server',
+  transport: 'sse',
+  url: 'https://mcp.example.com/sse',
+  headers: {
+    'Authorization': `Bearer ${process.env.MCP_API_TOKEN}`,
+  },
+});
+```
+
+You can pass any custom headers:
+
+```typescript
+await agent.connectMCP({
+  name: 'enterprise-tools',
+  transport: 'sse',
+  url: 'https://internal.corp.com/mcp/sse',
+  headers: {
+    'Authorization': 'Bearer eyJhbGciOiJSUzI1NiIs...',
+    'X-Tenant-Id': 'acme-corp',
+    'X-Request-Source': 'pure-agent',
+  },
+});
+```
+
+Headers are sent with every request to the SSE server, including the initial connection and all `tools/call` invocations.
+
 ### Via Config (auto-connect on creation)
 
 ```typescript
@@ -52,9 +84,12 @@ const agent = Agent.create({
       args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
     },
     {
-      name: 'database',
+      name: 'private-api',
       transport: 'sse',
-      url: 'http://localhost:3002/sse',
+      url: 'https://mcp.example.com/sse',
+      headers: {
+        'Authorization': `Bearer ${process.env.MCP_API_TOKEN}`,
+      },
     },
   ],
 });
@@ -84,6 +119,7 @@ const agent = Agent.create({
 | `command` | `string` | required for stdio | Shell command to start the server |
 | `args` | `string[]` | `[]` | Command arguments |
 | `url` | `string` | required for sse | Server URL |
+| `headers` | `Record<string, string>` | `undefined` | HTTP headers for SSE transport (auth tokens, API keys) |
 | `timeout` | `number` | `30,000` | Per-tool-call timeout (ms) |
 | `maxRetries` | `number` | `3` | Reconnection attempts |
 | `healthCheckInterval` | `number` | `60,000` | Health check polling (ms, 0 = off) |

@@ -8,6 +8,7 @@ const MCPConnectionConfigSchema = z.object({
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   url: z.string().url().optional(),
+  headers: z.record(z.string()).optional(),
   timeout: z.number().positive().default(30_000),
   maxRetries: z.number().int().min(0).default(3),
   healthCheckInterval: z.number().positive().default(60_000),
