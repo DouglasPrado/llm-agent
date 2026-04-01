@@ -15,6 +15,10 @@ export { SQLiteVectorStore } from './knowledge/sqlite-vector-store.js';
 export { SQLiteConversationStore } from './storage/sqlite-conversation-store.js';
 export { SQLiteDatabase } from './storage/sqlite-database.js';
 
+// MCP
+export { MCPAdapter } from './tools/mcp-adapter.js';
+export type { MCPHealthStatus } from './tools/mcp-adapter.js';
+
 // Utils
 export { createLogger } from './utils/logger.js';
 export type { Logger } from './utils/logger.js';

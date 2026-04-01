@@ -56,14 +56,15 @@ describe('Agent — extended API (divergence fixes)', () => {
     expect(history[0]!.content).toBe('Hello');
   });
 
-  it('connectMCP() should throw not implemented', async () => {
+  it('connectMCP() should attempt connection (errors without valid server)', async () => {
     const agent = Agent.create({ apiKey: 'test-key', memory: { enabled: false }, knowledge: { enabled: false } });
-    await expect(agent.connectMCP({ name: 'test', transport: 'stdio' })).rejects.toThrow('MCP not implemented');
+    // Without a valid command, stdio transport will fail
+    await expect(agent.connectMCP({ name: 'test', transport: 'stdio', command: '__nonexistent__' })).rejects.toThrow();
   });
 
-  it('disconnectMCP() should throw not implemented', async () => {
+  it('disconnectMCP() should throw for unknown server', async () => {
     const agent = Agent.create({ apiKey: 'test-key', memory: { enabled: false }, knowledge: { enabled: false } });
-    await expect(agent.disconnectMCP('test')).rejects.toThrow('MCP not implemented');
+    await expect(agent.disconnectMCP('nonexistent')).rejects.toThrow('not found');
   });
 
   it('getUsage() should track session-level cost across multiple calls', async () => {
