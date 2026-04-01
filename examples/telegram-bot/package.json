@@ -1,0 +1,26 @@
+{
+  "name": "pure-agent-telegram-bot",
+  "version": "0.1.0",
+  "description": "Telegram bot powered by Pure Agent with memory, tools, and streaming",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/bot.ts",
+    "start": "tsx src/bot.ts",
+    "build": "tsc",
+    "start:prod": "node dist/bot.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.0",
+    "grammy": "^1.30.0",
+    "pure-agent": "file:../../",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
