@@ -3,7 +3,7 @@ import { AgentConfigSchema } from './config/config.js';
 import type { AgentEvent, AgentEndEvent } from './contracts/entities/agent-event.js';
 import type { AgentTool } from './contracts/entities/agent-tool.js';
 import type { AgentSkill } from './contracts/entities/agent-skill.js';
-import type { KnowledgeDocument } from './contracts/entities/knowledge.js';
+import type { KnowledgeDocument, RetrievedKnowledge } from './contracts/entities/knowledge.js';
 import type { TokenUsage } from './contracts/entities/token-usage.js';
 import type { ContentPart } from './contracts/entities/content-part.js';
 import type { MessageRole } from './contracts/enums/index.js';
@@ -394,9 +394,9 @@ export class Agent {
     ) {
       this.turnsSinceExtraction = 0;
       const memSystem = this.fileMemorySystem;
-      const client = this.client;
       const logger = this.logger;
       const conversations = this.conversations;
+      const forkFn = this.fork.bind(this);
 
       void (async () => {
         try {
@@ -410,7 +410,7 @@ export class Agent {
             const text = typeof m.content === 'string' ? m.content : '[multimodal]';
             return `${m.role}: ${text}`;
           }).join('\n');
-          await extractMemories(conversationText, memSystem, client, { threadId });
+          await extractMemories(conversationText, memSystem, forkFn, { threadId });
         } catch (err) {
           logger.debug('Memory extraction failed', { error: String(err) });
         }
@@ -603,6 +603,11 @@ export class Agent {
     if (!this.knowledgeManager) throw new Error('Knowledge subsystem not enabled');
     const chunks = await this.knowledgeManager.ingest(document);
     this.logger.info('Knowledge ingested', { chunks });
+  }
+
+  async searchKnowledge(query: string): Promise<RetrievedKnowledge[]> {
+    if (!this.knowledgeManager) throw new Error('Knowledge subsystem not enabled');
+    return this.knowledgeManager.search(query);
   }
 
   getUsage(): TokenUsage {

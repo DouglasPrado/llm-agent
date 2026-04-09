@@ -16,6 +16,7 @@ import { autocompact } from './compaction/autocompact.js';
 import { runStopHooks } from './stop-hooks.js';
 import { PromptTooLongError, OverloadedError, InsufficientCreditsError, classifyAPIError } from '../llm/errors.js';
 import { SKILL_TOOL_NAME } from '../tools/skill-tool.js';
+import { normalizeMessagesForAPI } from './message-normalize.js';
 
 const MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3;
 const MAX_BUDGET_CONTINUATIONS = 4;
@@ -180,8 +181,11 @@ export async function* executeReactLoop(
     const effectiveMaxTokens = state.maxOutputTokensOverride ?? maxOutputTokens;
 
     try {
+      // Normalize messages before API call (remove orphaned tool results/calls, empty messages)
+      const normalizedMessages = normalizeMessagesForAPI(compactedMessages);
+
       for await (const chunk of callModel({
-        messages: compactedMessages,
+        messages: normalizedMessages,
         tools: toolDefs,
         model: currentModel,
         signal,

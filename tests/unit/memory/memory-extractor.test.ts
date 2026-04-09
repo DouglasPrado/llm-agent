@@ -1,19 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   hasExplicitTrigger,
   shouldExtract,
   extractMemories,
+  type ForkFn,
 } from '../../../src/memory/memory-extractor.js';
 import { FileMemorySystem } from '../../../src/memory/file-memory-system.js';
 import type { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
 import type { Logger } from '../../../src/utils/logger.js';
 
-function createMockClient(response: string): OpenRouterClient {
+function createMockClient(): OpenRouterClient {
   return {
-    chat: vi.fn().mockResolvedValue({ content: response }),
+    chat: vi.fn().mockResolvedValue({ content: '[]' }),
   } as unknown as OpenRouterClient;
 }
 
@@ -63,103 +64,117 @@ describe('memory-extractor', () => {
     });
   });
 
-  describe('extractMemories', () => {
+  describe('extractMemories (forked agent)', () => {
     let tempDir: string;
     let system: FileMemorySystem;
     let logger: Logger;
+    let mockFork: ReturnType<typeof vi.fn>;
 
     beforeEach(async () => {
       tempDir = await mkdtemp(join(tmpdir(), 'extract-test-'));
       logger = createMockLogger();
+      const client = createMockClient();
+      system = new FileMemorySystem({ memoryDir: tempDir }, client, logger);
+      mockFork = vi.fn().mockResolvedValue('');
     });
 
     afterEach(async () => {
       await rm(tempDir, { recursive: true, force: true });
     });
 
-    it('should extract and save memories from conversation', async () => {
-      const extractedData = [
-        {
-          name: 'User Expertise',
-          description: 'User is a Go developer',
-          type: 'user',
-          content: 'The user has 10 years of Go experience.',
-        },
-      ];
-      const client = createMockClient(JSON.stringify(extractedData));
-      system = new FileMemorySystem({ memoryDir: tempDir }, client, logger);
-
-      const saved = await extractMemories(
-        'user: I have been writing Go for 10 years\nassistant: Great!',
+    it('calls fork with memory tools', async () => {
+      await extractMemories(
+        'user: I like TypeScript\nassistant: Great!',
         system,
-        client,
+        mockFork as ForkFn,
       );
 
-      expect(saved).toHaveLength(1);
-      expect(saved[0]).toBe('user-expertise.md');
+      expect(mockFork).toHaveBeenCalledOnce();
 
-      const content = await readFile(join(tempDir, 'user-expertise.md'), 'utf-8');
-      expect(content).toContain('10 years of Go experience');
+      const [prompt, options] = mockFork.mock.calls[0];
+      expect(prompt).toContain('memory extraction');
+      expect(options.tools).toHaveLength(5);
+
+      const toolNames = options.tools.map((t: any) => t.name);
+      expect(toolNames).toContain('memory_list');
+      expect(toolNames).toContain('memory_read');
+      expect(toolNames).toContain('memory_write');
+      expect(toolNames).toContain('memory_edit');
+      expect(toolNames).toContain('memory_delete');
     });
 
-    it('should return empty array on empty conversation', async () => {
-      const client = createMockClient('[]');
-      system = new FileMemorySystem({ memoryDir: tempDir }, client, logger);
+    it('passes existing manifest in prompt', async () => {
+      // Create a memory file so manifest is non-empty
+      await system.saveMemory({
+        name: 'Existing Memory',
+        description: 'A pre-existing memory',
+        type: 'user',
+        content: 'Some content.',
+      });
 
-      const saved = await extractMemories('', system, client);
-      expect(saved).toEqual([]);
+      await extractMemories(
+        'user: hello\nassistant: hi',
+        system,
+        mockFork as ForkFn,
+      );
+
+      const [prompt] = mockFork.mock.calls[0];
+      expect(prompt).toContain('existing-memory.md');
+      expect(prompt).toContain('A pre-existing memory');
     });
 
-    it('should handle invalid JSON response gracefully', async () => {
-      const client = createMockClient('not json at all');
-      system = new FileMemorySystem({ memoryDir: tempDir }, client, logger);
+    it('runs fork in background mode', async () => {
+      await extractMemories(
+        'user: test\nassistant: ok',
+        system,
+        mockFork as ForkFn,
+      );
 
-      const saved = await extractMemories('some conversation', system, client);
-      expect(saved).toEqual([]);
+      const [, options] = mockFork.mock.calls[0];
+      expect(options.background).toBe(true);
     });
 
-    it('should handle API errors gracefully', async () => {
-      const client = {
-        chat: vi.fn().mockRejectedValue(new Error('API error')),
-      } as unknown as OpenRouterClient;
-      system = new FileMemorySystem({ memoryDir: tempDir }, client, logger);
-
-      const saved = await extractMemories('some conversation', system, client);
-      expect(saved).toEqual([]);
+    it('does nothing on empty conversation', async () => {
+      await extractMemories('', system, mockFork as ForkFn);
+      expect(mockFork).not.toHaveBeenCalled();
     });
 
-    it('should skip items with invalid type', async () => {
-      const extractedData = [
-        { name: 'Bad', description: 'bad', type: 'unknown', content: 'content' },
-        { name: 'Good', description: 'good', type: 'user', content: 'content' },
-      ];
-      const client = createMockClient(JSON.stringify(extractedData));
-      system = new FileMemorySystem({ memoryDir: tempDir }, client, logger);
-
-      const saved = await extractMemories('conversation', system, client);
-      expect(saved).toHaveLength(1);
-      expect(saved[0]).toBe('good.md');
+    it('does nothing on whitespace-only conversation', async () => {
+      await extractMemories('   \n  \n  ', system, mockFork as ForkFn);
+      expect(mockFork).not.toHaveBeenCalled();
     });
 
-    it('should skip items missing required fields', async () => {
-      const extractedData = [
-        { name: 'No Content', description: 'test', type: 'user' },
-        { description: 'No Name', type: 'user', content: 'content' },
-      ];
-      const client = createMockClient(JSON.stringify(extractedData));
-      system = new FileMemorySystem({ memoryDir: tempDir }, client, logger);
+    it('swallows errors gracefully', async () => {
+      const failingFork = vi.fn().mockRejectedValue(new Error('fork failed'));
 
-      const saved = await extractMemories('conversation', system, client);
-      expect(saved).toEqual([]);
+      // Should not throw
+      await extractMemories(
+        'user: test\nassistant: ok',
+        system,
+        failingFork as ForkFn,
+      );
     });
 
-    it('should handle markdown-wrapped JSON response', async () => {
-      const wrapped = '```json\n[{"name":"Test","description":"test","type":"feedback","content":"content"}]\n```';
-      const client = createMockClient(wrapped);
-      system = new FileMemorySystem({ memoryDir: tempDir }, client, logger);
+    it('passes threadId to memory tools when provided', async () => {
+      await extractMemories(
+        'user: test\nassistant: ok',
+        system,
+        mockFork as ForkFn,
+        { threadId: 'thread-42' },
+      );
 
-      const saved = await extractMemories('conversation', system, client);
-      expect(saved).toHaveLength(1);
+      expect(mockFork).toHaveBeenCalledOnce();
+    });
+
+    it('includes conversation text in the prompt', async () => {
+      await extractMemories(
+        'user: I prefer dark mode\nassistant: Noted!',
+        system,
+        mockFork as ForkFn,
+      );
+
+      const [prompt] = mockFork.mock.calls[0];
+      expect(prompt).toContain('I prefer dark mode');
     });
   });
 });

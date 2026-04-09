@@ -4,11 +4,8 @@ import {
   ConfigurationBotFrameworkAuthentication,
 } from 'botbuilder';
 import { config } from './config.js';
-import { getAgent, destroyAgent } from './agent-factory.js';
+import { destroyAll } from './agent-factory.js';
 import { AgentXBot } from './handlers.js';
-
-// Initialize agent (async — connects MCP servers)
-await getAgent();
 
 // Bot Framework authentication
 const botFrameworkAuth = new ConfigurationBotFrameworkAuthentication({
@@ -60,7 +57,7 @@ const server = app.listen(config.server.port, () => {
 async function shutdown() {
   console.log('\nShutting down...');
   server.close();
-  await destroyAgent();
+  await destroyAll();
   console.log('Bye.');
   process.exit(0);
 }

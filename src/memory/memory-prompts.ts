@@ -226,6 +226,8 @@ export function buildMemoryInstructions(memoryDir: string): string {
 /**
  * Build the extraction prompt for the background extraction LLM call.
  * Includes existing memory manifest to avoid duplicates.
+ *
+ * @deprecated Use buildForkedExtractionPrompt instead.
  */
 export function buildExtractionPrompt(
   newMessageCount: number,
@@ -253,5 +255,59 @@ export function buildExtractionPrompt(
     '- "content": the memory content (for feedback/project, include **Why:** and **How to apply:** sections)',
     '',
     'If nothing worth remembering, return an empty array []. Return ONLY the JSON array, no other text.',
+  ].join('\n');
+}
+
+/**
+ * Build the extraction prompt for the forked agent with memory tools.
+ *
+ * The forked agent has access to memory_list, memory_read, memory_write,
+ * memory_edit, and memory_delete. This prompt instructs it to:
+ * 1. Check existing memories (via manifest + memory_read)
+ * 2. Update existing files (memory_edit) instead of creating duplicates
+ * 3. Only create new files (memory_write) when truly novel
+ */
+export function buildForkedExtractionPrompt(
+  newMessageCount: number,
+  existingManifest: string,
+): string {
+  const manifest = existingManifest.length > 0
+    ? `\n\n## Existing memory files\n\n${existingManifest}\n\nCheck this list before writing — update an existing file rather than creating a duplicate.`
+    : '';
+
+  return [
+    `You are the memory extraction subagent. Analyze the most recent ~${newMessageCount} messages and use your tools to update the persistent memory system.`,
+    '',
+    'Available tools: memory_list, memory_read, memory_write, memory_edit, memory_delete.',
+    '',
+    'CRITICAL WORKFLOW:',
+    '- FIRST: Review the existing memory manifest below to see what already exists.',
+    '- If a memory on the same topic already exists, use memory_read to check its content, then memory_edit to update it.',
+    '- ONLY use memory_write for genuinely NEW topics not covered by any existing memory.',
+    '- NEVER create a duplicate. If in doubt, read the existing file first.',
+    '',
+    'EFFICIENT STRATEGY (you have a limited turn budget):',
+    '- Turn 1: Call memory_read in parallel for every file you might want to update.',
+    '- Turn 2: Call memory_write / memory_edit / memory_delete in parallel for all changes.',
+    '- Do NOT interleave reads and writes across many turns.',
+    '',
+    `You MUST only use content from the last ~${newMessageCount} messages. Do not investigate further — no external lookups, no verification.`,
+    manifest,
+    '',
+    'If the user explicitly asks to remember something, save the FULL content — do NOT summarize or paraphrase.',
+    'If the user asks to forget something, use memory_delete.',
+    '',
+    ...TYPES_SECTION,
+    ...WHAT_NOT_TO_SAVE_SECTION,
+    '',
+    '## How to save',
+    '',
+    'Use memory_write with:',
+    '- name: short name (2-4 words)',
+    '- description: one-line description (specific — used to decide relevance in future conversations)',
+    `- type: one of ${MEMORY_TYPES.join(', ')}`,
+    '- content: the memory body (for feedback/project, include **Why:** and **How to apply:** sections)',
+    '',
+    'If nothing worth remembering, do nothing.',
   ].join('\n');
 }

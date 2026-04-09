@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import type { AgentTool } from 'agentx-sdk';
+import type { Agent, AgentTool } from 'agentx-sdk';
 import { config } from './config.js';
 
 /**
  * All tools available to the agent.
- * Add or remove tools here to customize the bot's capabilities.
+ * Receives a getter to the owning Agent instance (avoids circular import).
  */
-export function createTools(): AgentTool[] {
+export function createTools(getAgent: () => Agent): AgentTool[] {
   const tools: AgentTool[] = [];
 
   // Web search via Tavily (if API key provided)
@@ -53,6 +53,23 @@ export function createTools(): AgentTool[] {
       },
     });
   }
+
+  // Knowledge search (RAG)
+  tools.push({
+    name: 'search_knowledge',
+    description: 'Search the internal knowledge base for information about Albert platform: plans, subscriptions, cashback, partners, onboarding, permissions, invite system, public API, etc. Use this BEFORE answering any question about how the Albert platform works.',
+    parameters: z.object({
+      query: z.string().describe('Search query in natural language — be specific'),
+    }),
+    execute: async (rawArgs) => {
+      const agent = getAgent();
+      const results = await agent.searchKnowledge((rawArgs as { query: string }).query);
+      if (!results || results.length === 0) {
+        return 'No relevant knowledge found for this query.';
+      }
+      return results.map((r: { score: number; content: string }, i: number) => `[${i + 1}] (score: ${r.score.toFixed(2)})\n${r.content}`).join('\n\n---\n\n');
+    },
+  });
 
   // Current date/time
   tools.push({

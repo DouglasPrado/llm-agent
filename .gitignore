@@ -15,6 +15,7 @@ coverage/
 /examples/teams-bot/package-lock.json
 /examples/teams-bot/package.json
 /examples/teams-bot/package-lock.json
+/examples/teams-bot/src/knowledge/*
 
 /examples/telegram-bot/node_modules/*
 /examples/telegram-bot/dist/*

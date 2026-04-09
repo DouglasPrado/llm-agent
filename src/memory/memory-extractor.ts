@@ -4,18 +4,17 @@
  * Analyzes recent conversation to extract memories worth saving.
  * Fire-and-forget — called after each completed turn.
  *
- * Key behaviors ported from old_src/services/extractMemories/:
+ * Uses the forked agent pattern (like old_src/services/extractMemories/):
  * - Pre-injects manifest of existing memories to avoid duplicates
- * - Uses comprehensive extraction prompt with type taxonomy
- * - Constrains extractor to only use recent messages (no investigation)
+ * - Gives the forked agent memory tools (read, write, edit, delete)
+ * - Agent reads existing files before deciding to update or create
+ * - Limited to 5 iterations to prevent rabbit holes
  */
 
-import type { OpenRouterClient } from '../llm/openrouter-client.js';
 import type { FileMemorySystem } from './file-memory-system.js';
-import type { MemoryType } from './memory-types.js';
-import { MEMORY_TYPES } from './memory-types.js';
 import { formatMemoryManifest } from './memory-scanner.js';
-import { buildExtractionPrompt } from './memory-prompts.js';
+import { buildForkedExtractionPrompt } from './memory-prompts.js';
+import { createMemoryTools } from './memory-tools.js';
 
 /** Extraction trigger keywords (multilingual) */
 const EXPLICIT_TRIGGERS = [
@@ -54,79 +53,66 @@ export function shouldExtract(
   return false;
 }
 
-interface ExtractedMemory {
-  name: string;
-  description: string;
-  type: MemoryType;
-  content: string;
+/**
+ * Interface for the fork function — avoids circular import with Agent.
+ * Matches the signature of Agent.fork().
+ */
+export interface ForkFn {
+  (prompt: string, options?: {
+    systemPrompt?: string;
+    model?: string;
+    tools?: import('../contracts/entities/agent-tool.js').AgentTool[];
+    background?: boolean;
+  }): Promise<string>;
 }
 
 /**
- * Extract memories from conversation text and save them.
+ * Extract memories from conversation using a forked agent with memory tools.
  *
- * Pre-scans the memory directory and injects the existing manifest into
- * the extraction prompt so the LLM knows what already exists and can
- * update rather than duplicate.
+ * The forked agent can:
+ * - List existing memories (manifest)
+ * - Read existing memory content
+ * - Edit existing memories (update, not duplicate)
+ * - Write new memories
+ * - Delete outdated memories
  *
  * Fire-and-forget — errors are swallowed.
  */
 export async function extractMemories(
   conversationText: string,
   memorySystem: FileMemorySystem,
-  client: OpenRouterClient,
+  fork: ForkFn,
   options?: { model?: string; threadId?: string },
-): Promise<string[]> {
-  if (!conversationText.trim()) return [];
+): Promise<void> {
+  if (!conversationText.trim()) return;
 
   try {
-    // Pre-scan existing memories (thread + global) to avoid duplicates
+    // Pre-scan existing memories (thread + global) for the manifest
     const existingMemories = await memorySystem.scanMemories(undefined, options?.threadId);
     const existingManifest = formatMemoryManifest(existingMemories);
 
     // Count approximate messages for the prompt
     const messageCount = conversationText.split('\n').filter(l => l.match(/^(user|assistant|tool):/)).length;
 
-    const systemPrompt = buildExtractionPrompt(
-      Math.max(messageCount, 2),
-      existingManifest,
-    );
+    const prompt = [
+      buildForkedExtractionPrompt(Math.max(messageCount, 2), existingManifest),
+      '',
+      '## Recent conversation',
+      '',
+      conversationText,
+    ].join('\n');
 
-    const response = await client.chat({
+    // Create memory tools scoped to the right directory
+    const tools = createMemoryTools(memorySystem.getMemoryDir(), options?.threadId);
+
+    // Fork a subagent with memory tools — background, fire-and-forget
+    await fork(prompt, {
+      systemPrompt: 'You are a memory extraction subagent. Use your memory tools to save, update, or delete memories based on the conversation provided. Be efficient — minimize tool calls.',
       model: options?.model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: conversationText },
-      ],
-      temperature: 0,
-      maxTokens: 16000,
+      tools,
+      background: true,
     });
-
-    let extracted: ExtractedMemory[];
-    try {
-      const jsonStr = response.content.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
-      extracted = JSON.parse(jsonStr);
-    } catch {
-      return [];
-    }
-
-    if (!Array.isArray(extracted)) return [];
-
-    const saved: string[] = [];
-    for (const item of extracted) {
-      if (!item.name || !item.content || !item.type) continue;
-      if (!MEMORY_TYPES.includes(item.type as MemoryType)) continue;
-
-      const filename = await memorySystem.saveMemory({
-        name: item.name,
-        description: item.description || item.name,
-        type: item.type as MemoryType,
-        content: item.content,
-      }, options?.threadId);
-      saved.push(filename);
-    }
-
-    return saved;
   } catch {
-    return [];
+    // Extraction is best-effort — never propagate errors
   }
 }

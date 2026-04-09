@@ -41,6 +41,8 @@ export class AgentXBot extends TeamsActivityHandler {
       await this.handleUsage(context);
     } else if (text.startsWith("/memory ")) {
       await this.handleMemory(context, text.replace(/^\/memory\s*/, "").trim());
+    } else if (text.startsWith("/learn ")) {
+      await this.handleLearn(context, text.replace(/^\/learn\s*/, "").trim());
     } else {
       await this.handleChat(context, text);
     }
@@ -54,13 +56,15 @@ export class AgentXBot extends TeamsActivityHandler {
         "- `/start` — This message\n" +
         "- `/reset` — Clear conversation history\n" +
         "- `/usage` — Show token usage\n" +
-        "- `/memory <text>` — Save a memory\n\n" +
+        "- `/memory <text>` — Save a memory\n" +
+        "- `/learn <text>` — Teach me a document (RAG)\n\n" +
         "Just send me a message to chat!",
     );
   }
 
   private async handleReset(context: TurnContext): Promise<void> {
-    const agent = await getAgent();
+    const conversationId = context.activity.conversation.id;
+    const agent = await getAgent(conversationId);
     try {
       await agent.remember(
         `Conversation was reset by the user at ${new Date().toISOString()}`,
@@ -73,7 +77,8 @@ export class AgentXBot extends TeamsActivityHandler {
   }
 
   private async handleUsage(context: TurnContext): Promise<void> {
-    const agent = await getAgent();
+    const conversationId = context.activity.conversation.id;
+    const agent = await getAgent(conversationId);
     const usage = agent.getUsage();
     await context.sendActivity(
       "**Token Usage**\n\n" +
@@ -81,6 +86,29 @@ export class AgentXBot extends TeamsActivityHandler {
         `Output: ${usage.outputTokens.toLocaleString()}\n` +
         `Total: ${usage.totalTokens.toLocaleString()}`,
     );
+  }
+
+  private async handleLearn(
+    context: TurnContext,
+    text: string,
+  ): Promise<void> {
+    if (!text) {
+      await context.sendActivity("Usage: `/learn <document text>`\nEnvia um texto longo para o bot aprender via RAG.");
+      return;
+    }
+
+    const conversationId = context.activity.conversation.id;
+    const agent = await getAgent(conversationId);
+    try {
+      await agent.ingestKnowledge({
+        content: text,
+        metadata: { source: 'teams-chat', ingestedAt: new Date().toISOString() },
+      });
+      await context.sendActivity(`Knowledge ingested successfully.`);
+    } catch (error) {
+      console.error('Learn error:', error);
+      await context.sendActivity("Failed to ingest knowledge. Knowledge subsystem may be disabled.");
+    }
   }
 
   private async handleMemory(
@@ -92,7 +120,8 @@ export class AgentXBot extends TeamsActivityHandler {
       return;
     }
 
-    const agent = await getAgent();
+    const conversationId = context.activity.conversation.id;
+    const agent = await getAgent(conversationId);
     try {
       const filename = await agent.remember(text);
       await context.sendActivity(`Memory saved: ${filename}`);
@@ -109,7 +138,7 @@ export class AgentXBot extends TeamsActivityHandler {
   private async handleChat(context: TurnContext, text: string): Promise<void> {
     const threadId = context.activity.conversation.id;
     console.log("threadId", threadId);
-    const agent = await getAgent();
+    const agent = await getAgent(threadId);
 
     // Keep typing indicator alive during processing
     const typingInterval = setInterval(async () => {

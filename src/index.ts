@@ -49,6 +49,9 @@ export type { TurnEndHook, TurnEndHookContext, TurnEndHookResult } from './core/
 export { buildToolUsagePrompt, buildEnvironmentPrompt } from './core/prompt-builders.js';
 export type { EnvironmentInfo } from './core/prompt-builders.js';
 
+// Message normalization
+export { normalizeMessagesForAPI } from './core/message-normalize.js';
+
 // Prompt cache
 export { PromptSectionCache } from './core/prompt-cache.js';
 
