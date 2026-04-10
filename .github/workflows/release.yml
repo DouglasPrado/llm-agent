@@ -81,14 +81,16 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.version }}
 
-          LAST_TAG=$(git describe --tags --abbrev=0 "${VERSION}^" 2>/dev/null || echo "")
-          if [ -z "$LAST_TAG" ]; then
-            NOTES=$(git log --format='- %s' HEAD)
+          # Generate changelog from commits between previous tag and current
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${VERSION}$" | head -1 || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            NOTES=$(git log --format='- %s' "${VERSION}")
           else
-            NOTES=$(git log --format='- %s' "${LAST_TAG}..${VERSION}^")
+            NOTES=$(git log --format='- %s' "${PREV_TAG}..${VERSION}")
           fi
 
           gh release create "$VERSION" \
             --title "$VERSION" \
             --notes "$NOTES" \
+            --target main \
             --latest
