@@ -40,5 +40,8 @@
   "optionalDependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
+  },
   "license": "MIT"
 }
