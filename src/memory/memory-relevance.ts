@@ -2,10 +2,10 @@
  * LLM-powered relevance selection for file-based memories.
  *
  * Given a user query and a manifest of available memory files, asks the LLM
- * to select up to 5 most relevant memories. Uses OpenRouterClient.chat().
+ * to select up to 5 most relevant memories. Uses LLMClient.chat().
  */
 
-import type { OpenRouterClient } from '../llm/openrouter-client.js';
+import type { LLMClient } from '../llm/llm-client.js';
 
 const SELECT_MEMORIES_SYSTEM_PROMPT = `You are selecting memories that will be useful to an AI agent as it processes a user's query. You will be given the user's query and a list of available memory files with their filenames and descriptions.
 
@@ -22,7 +22,7 @@ export async function selectRelevantMemories(
   query: string,
   manifest: string,
   validFilenames: Set<string>,
-  client: OpenRouterClient,
+  client: LLMClient,
   options?: { model?: string; signal?: AbortSignal },
 ): Promise<string[]> {
   if (!manifest.trim()) return [];

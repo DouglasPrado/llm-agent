@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeReactLoop } from '../../../src/core/react-loop.js';
 import { ToolExecutor } from '../../../src/tools/tool-executor.js';
-import type { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
+import type { LLMClient } from '../../../src/llm/llm-client.js';
 import type { StreamChunk } from '../../../src/llm/message-types.js';
 import type { AgentEvent } from '../../../src/contracts/entities/agent-event.js';
 import type { Terminal } from '../../../src/core/loop-types.js';
 import { z } from 'zod';
 
-function createMockClient(chunks: StreamChunk[][]): OpenRouterClient {
+function createMockClient(chunks: StreamChunk[][]): LLMClient {
   let call = 0;
   return {
     streamChat: vi.fn(async function* () {
@@ -15,7 +15,7 @@ function createMockClient(chunks: StreamChunk[][]): OpenRouterClient {
       call++;
       yield* iteration;
     }),
-  } as unknown as OpenRouterClient;
+  } as unknown as LLMClient;
 }
 
 /** Consume the generator, collect events and terminal */
@@ -197,7 +197,7 @@ describe('executeReactLoop (AsyncGenerator)', () => {
         callCount++;
         throw new Error(`API error ${callCount}`);
       }),
-    } as unknown as OpenRouterClient;
+    } as unknown as LLMClient;
 
     const executor = new ToolExecutor();
     const gen = executeReactLoop(

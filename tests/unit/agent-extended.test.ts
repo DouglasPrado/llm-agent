@@ -125,9 +125,9 @@ describe('Agent — extended API (divergence fixes)', () => {
       );
     });
 
-    // Verify at the OpenRouterClient level that responseFormat is accepted
-    const { OpenRouterClient } = await import('../../src/llm/openrouter-client.js');
-    const client = new OpenRouterClient({ apiKey: 'test', model: 'test/model', baseUrl: 'https://api.test.com/v1' });
+    // Verify at the LLMClient level that responseFormat is accepted
+    const { LLMClient } = await import('../../src/llm/llm-client.js');
+    const client = new LLMClient({ apiKey: 'test', model: 'test/model', baseUrl: 'https://api.test.com/v1' });
 
     const chunks = [];
     for await (const chunk of client.streamChat({

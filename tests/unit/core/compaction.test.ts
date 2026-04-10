@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { microcompact } from '../../../src/core/compaction/microcompact.js';
 import { autocompact } from '../../../src/core/compaction/autocompact.js';
-import type { OpenRouterMessage } from '../../../src/llm/message-types.js';
-import type { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
+import type { LLMMessage } from '../../../src/llm/message-types.js';
+import type { LLMClient } from '../../../src/llm/llm-client.js';
 
 describe('microcompact', () => {
   it('should truncate tool results exceeding maxChars', () => {
     const longContent = 'x'.repeat(15_000);
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'user', content: 'search files' },
       { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
       { role: 'tool', content: longContent, tool_call_id: 'c1' },
@@ -24,7 +24,7 @@ describe('microcompact', () => {
   });
 
   it('should not modify messages under the limit', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'user', content: 'hello' },
       { role: 'assistant', content: 'world' },
     ];
@@ -37,7 +37,7 @@ describe('microcompact', () => {
 
   it('should preserve head and tail of truncated content', () => {
     const content = 'HEAD_CONTENT' + 'x'.repeat(15_000) + 'TAIL_CONTENT';
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'tool', content, tool_call_id: 'c1' },
     ];
 
@@ -49,7 +49,7 @@ describe('microcompact', () => {
   });
 
   it('should handle multiple large tool results', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'tool', content: 'a'.repeat(20_000), tool_call_id: 'c1' },
       { role: 'tool', content: 'b'.repeat(20_000), tool_call_id: 'c2' },
       { role: 'tool', content: 'small', tool_call_id: 'c3' },
@@ -63,21 +63,21 @@ describe('microcompact', () => {
 });
 
 describe('autocompact', () => {
-  function createMockClient(summaryResponse: string): OpenRouterClient {
+  function createMockClient(summaryResponse: string): LLMClient {
     return {
       chat: vi.fn().mockResolvedValue({
         content: summaryResponse,
         finishReason: 'stop',
         usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       }),
-    } as unknown as OpenRouterClient;
+    } as unknown as LLMClient;
   }
 
   it('should summarize messages when threshold exceeded', async () => {
     const client = createMockClient('Summary of the conversation so far.');
 
     // Create enough messages to exceed threshold
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'system', content: 'You are helpful.' },
       { role: 'user', content: 'First question' },
       { role: 'assistant', content: 'First answer with lots of detail '.repeat(100) },
@@ -109,7 +109,7 @@ describe('autocompact', () => {
 
   it('should return null when under threshold', async () => {
     const client = createMockClient('Summary');
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'user', content: 'short' },
       { role: 'assistant', content: 'reply' },
     ];
@@ -126,7 +126,7 @@ describe('autocompact', () => {
 
   it('should always preserve system messages', async () => {
     const client = createMockClient('Summary.');
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'system', content: 'System prompt' },
       { role: 'user', content: 'question '.repeat(500) },
       { role: 'assistant', content: 'answer '.repeat(500) },
@@ -149,9 +149,9 @@ describe('autocompact', () => {
   it('should return null on LLM error', async () => {
     const client = {
       chat: vi.fn().mockRejectedValue(new Error('API error')),
-    } as unknown as OpenRouterClient;
+    } as unknown as LLMClient;
 
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'user', content: 'question '.repeat(500) },
       { role: 'assistant', content: 'answer '.repeat(500) },
     ];

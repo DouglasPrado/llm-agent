@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { analyzeContext } from '../../../src/core/context-analysis.js';
-import type { OpenRouterMessage } from '../../../src/llm/message-types.js';
+import type { LLMMessage } from '../../../src/llm/message-types.js';
 
 describe('analyzeContext', () => {
   it('should count tokens by role', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'system', content: 'You are helpful' },
       { role: 'user', content: 'Hello there' },
       { role: 'assistant', content: 'Hi!' },
@@ -18,7 +18,7 @@ describe('analyzeContext', () => {
   });
 
   it('should count tool result tokens', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'tool', content: 'result data', tool_call_id: 'tc-1' },
       { role: 'tool', content: 'more data', tool_call_id: 'tc-2' },
     ];
@@ -30,7 +30,7 @@ describe('analyzeContext', () => {
   });
 
   it('should return message count', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'user', content: 'a' },
       { role: 'assistant', content: 'b' },
       { role: 'user', content: 'c' },

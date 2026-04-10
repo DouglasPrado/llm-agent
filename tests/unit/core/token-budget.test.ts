@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeReactLoop } from '../../../src/core/react-loop.js';
 import { ToolExecutor } from '../../../src/tools/tool-executor.js';
-import type { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
+import type { LLMClient } from '../../../src/llm/llm-client.js';
 import type { StreamChunk } from '../../../src/llm/message-types.js';
 import type { AgentEvent } from '../../../src/contracts/entities/agent-event.js';
 import type { Terminal } from '../../../src/core/loop-types.js';
@@ -32,7 +32,7 @@ describe('Token Budget Continuation', () => {
           yield { type: 'done', finishReason: 'stop', usage: { inputTokens: 60, outputTokens: 800, totalTokens: 860 } } as StreamChunk;
         }
       }),
-    } as unknown as OpenRouterClient;
+    } as unknown as LLMClient;
 
     const executor = new ToolExecutor();
     const gen = executeReactLoop(
@@ -61,7 +61,7 @@ describe('Token Budget Continuation', () => {
         yield { type: 'content', data: 'Complete response' } as StreamChunk;
         yield { type: 'done', finishReason: 'stop', usage: { inputTokens: 50, outputTokens: 800, totalTokens: 850 } } as StreamChunk;
       }),
-    } as unknown as OpenRouterClient;
+    } as unknown as LLMClient;
 
     const executor = new ToolExecutor();
     const gen = executeReactLoop(
@@ -88,7 +88,7 @@ describe('Token Budget Continuation', () => {
         // Always low output — triggers continuation but eventually gives up
         yield { type: 'done', finishReason: 'stop', usage: { inputTokens: 50, outputTokens: 10, totalTokens: 60 } } as StreamChunk;
       }),
-    } as unknown as OpenRouterClient;
+    } as unknown as LLMClient;
 
     const executor = new ToolExecutor();
     const gen = executeReactLoop(
@@ -113,7 +113,7 @@ describe('Token Budget Continuation', () => {
         yield { type: 'content', data: 'Short' } as StreamChunk;
         yield { type: 'done', finishReason: 'stop', usage: { inputTokens: 50, outputTokens: 10, totalTokens: 60 } } as StreamChunk;
       }),
-    } as unknown as OpenRouterClient;
+    } as unknown as LLMClient;
 
     const executor = new ToolExecutor();
     const gen = executeReactLoop(

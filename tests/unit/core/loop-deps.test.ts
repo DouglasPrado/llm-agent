@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeReactLoop } from '../../../src/core/react-loop.js';
 import { ToolExecutor } from '../../../src/tools/tool-executor.js';
-import type { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
+import type { LLMClient } from '../../../src/llm/llm-client.js';
 import type { StreamChunk } from '../../../src/llm/message-types.js';
 import type { AgentEvent } from '../../../src/contracts/entities/agent-event.js';
 import type { Terminal } from '../../../src/core/loop-types.js';
@@ -31,7 +31,7 @@ describe('LoopDeps (Dependency Injection)', () => {
       streamChat: vi.fn(async function* () {
         throw new Error('Should not be called');
       }),
-    } as unknown as OpenRouterClient;
+    } as unknown as LLMClient;
 
     const executor = new ToolExecutor();
     const deps: Partial<LoopDeps> = { callModel: fakeCallModel };
@@ -64,7 +64,7 @@ describe('LoopDeps (Dependency Injection)', () => {
         yield { type: 'content', data: 'ok' } as StreamChunk;
         yield { type: 'done', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } } as StreamChunk;
       }),
-    } as unknown as OpenRouterClient;
+    } as unknown as LLMClient;
 
     const executor = new ToolExecutor();
     const deps: Partial<LoopDeps> = { uuid: fakeUuid };

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeReactLoop } from '../../../src/core/react-loop.js';
 import { ToolExecutor } from '../../../src/tools/tool-executor.js';
-import type { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
+import type { LLMClient } from '../../../src/llm/llm-client.js';
 import type { StreamChunk } from '../../../src/llm/message-types.js';
 import type { AgentEvent } from '../../../src/contracts/entities/agent-event.js';
 import type { Terminal } from '../../../src/core/loop-types.js';
@@ -38,7 +38,7 @@ describe('Recovery Mechanisms', () => {
           finishReason: 'stop',
           usage: { inputTokens: 50, outputTokens: 25, totalTokens: 75 },
         }),
-      } as unknown as OpenRouterClient;
+      } as unknown as LLMClient;
 
       const executor = new ToolExecutor();
 
@@ -78,7 +78,7 @@ describe('Recovery Mechanisms', () => {
           throw new PromptTooLongError('Prompt too long');
         }),
         chat: vi.fn().mockRejectedValue(new Error('Compaction also failed')),
-      } as unknown as OpenRouterClient;
+      } as unknown as LLMClient;
 
       const executor = new ToolExecutor();
       const gen = executeReactLoop(
@@ -115,7 +115,7 @@ describe('Recovery Mechanisms', () => {
         }
       });
 
-      const client = { streamChat: streamChatFn } as unknown as OpenRouterClient;
+      const client = { streamChat: streamChatFn } as unknown as LLMClient;
       const executor = new ToolExecutor();
       const gen = executeReactLoop(
         [{ role: 'user', content: 'Write something long' }],
@@ -156,7 +156,7 @@ describe('Recovery Mechanisms', () => {
             yield { type: 'done', finishReason: 'stop', usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 } } as StreamChunk;
           }
         }),
-      } as unknown as OpenRouterClient;
+      } as unknown as LLMClient;
 
       const executor = new ToolExecutor();
       const gen = executeReactLoop(
@@ -181,7 +181,7 @@ describe('Recovery Mechanisms', () => {
           yield { type: 'content', data: 'Partial...' } as StreamChunk;
           yield { type: 'done', finishReason: 'length', usage: { inputTokens: 10, outputTokens: 100, totalTokens: 110 } } as StreamChunk;
         }),
-      } as unknown as OpenRouterClient;
+      } as unknown as LLMClient;
 
       const executor = new ToolExecutor();
       const gen = executeReactLoop(
@@ -209,7 +209,7 @@ describe('Recovery Mechanisms', () => {
           yield { type: 'content', data: 'Fallback response' } as StreamChunk;
           yield { type: 'done', finishReason: 'stop', usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } as StreamChunk;
         }),
-      } as unknown as OpenRouterClient;
+      } as unknown as LLMClient;
 
       const executor = new ToolExecutor();
       const gen = executeReactLoop(
@@ -234,7 +234,7 @@ describe('Recovery Mechanisms', () => {
         streamChat: vi.fn(async function* () {
           throw new OverloadedError('Model overloaded');
         }),
-      } as unknown as OpenRouterClient;
+      } as unknown as LLMClient;
 
       const executor = new ToolExecutor();
       const gen = executeReactLoop(

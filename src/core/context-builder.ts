@@ -1,4 +1,4 @@
-import type { OpenRouterMessage } from '../llm/message-types.js';
+import type { LLMMessage } from '../llm/message-types.js';
 import type { ChatMessage } from '../contracts/entities/chat-message.js';
 import type { ContentPart } from '../contracts/entities/content-part.js';
 import { estimateTokens } from '../utils/token-counter.js';
@@ -11,7 +11,7 @@ export interface ContextInjection {
 }
 
 export interface ContextBuildResult {
-  messages: OpenRouterMessage[];
+  messages: LLMMessage[];
   totalTokens: number;
   injections: ContextInjection[];
 }
@@ -30,7 +30,7 @@ export function buildContext(options: {
   const { systemPrompt, injections, history, maxTokens, reserveTokens, maxPinnedMessages } = options;
   const budget = maxTokens - reserveTokens;
   let used = 0;
-  const messages: OpenRouterMessage[] = [];
+  const messages: LLMMessage[] = [];
   const appliedInjections: ContextInjection[] = [];
 
   // 1. System prompt
@@ -60,18 +60,18 @@ export function buildContext(options: {
   for (const msg of pinned) {
     const tokens = estimateTokens(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content));
     if (used + tokens <= budget) {
-      messages.push(chatMessageToOpenRouter(msg));
+      messages.push(chatMessageToLLM(msg));
       used += tokens;
     }
   }
 
   // Include unpinned from most recent, fill remaining budget
   const unpinnedReversed = [...unpinned].reverse();
-  const unpinnedToInclude: OpenRouterMessage[] = [];
+  const unpinnedToInclude: LLMMessage[] = [];
   for (const msg of unpinnedReversed) {
     const tokens = estimateTokens(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content));
     if (used + tokens <= budget) {
-      unpinnedToInclude.unshift(chatMessageToOpenRouter(msg));
+      unpinnedToInclude.unshift(chatMessageToLLM(msg));
       used += tokens;
     } else {
       break;
@@ -89,10 +89,10 @@ export function buildContext(options: {
  * Merge consecutive messages with the same role.
  * Prevents API errors from consecutive user or assistant messages.
  */
-function mergeConsecutiveMessages(messages: OpenRouterMessage[]): OpenRouterMessage[] {
+function mergeConsecutiveMessages(messages: LLMMessage[]): LLMMessage[] {
   if (messages.length <= 1) return messages;
 
-  const result: OpenRouterMessage[] = [messages[0]!];
+  const result: LLMMessage[] = [messages[0]!];
 
   for (let i = 1; i < messages.length; i++) {
     const current = messages[i]!;
@@ -116,10 +116,10 @@ function mergeConsecutiveMessages(messages: OpenRouterMessage[]): OpenRouterMess
   return result;
 }
 
-function chatMessageToOpenRouter(msg: ChatMessage): OpenRouterMessage {
-  const result: OpenRouterMessage = {
+function chatMessageToLLM(msg: ChatMessage): LLMMessage {
+  const result: LLMMessage = {
     role: msg.role,
-    content: typeof msg.content === 'string' ? msg.content : contentPartsToOpenRouter(msg.content),
+    content: typeof msg.content === 'string' ? msg.content : contentPartsToLLM(msg.content),
   };
 
   if (msg.toolCalls) {
@@ -137,7 +137,7 @@ function chatMessageToOpenRouter(msg: ChatMessage): OpenRouterMessage {
   return result;
 }
 
-function contentPartsToOpenRouter(parts: ContentPart[]): string {
+function contentPartsToLLM(parts: ContentPart[]): string {
   return parts.map(p => {
     if (p.type === 'text') return p.text;
     if (p.type === 'image_url' && p.image_url?.url) return `[image: ${p.image_url.url}]`;

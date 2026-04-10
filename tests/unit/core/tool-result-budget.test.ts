@@ -1,22 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { applyToolResultBudget } from '../../../src/core/compaction/tool-result-budget.js';
-import type { OpenRouterMessage } from '../../../src/llm/message-types.js';
+import type { LLMMessage } from '../../../src/llm/message-types.js';
 
-function toolMsg(content: string, id = 'tc-1'): OpenRouterMessage {
+function toolMsg(content: string, id = 'tc-1'): LLMMessage {
   return { role: 'tool', content, tool_call_id: id };
 }
 
-function userMsg(content: string): OpenRouterMessage {
+function userMsg(content: string): LLMMessage {
   return { role: 'user', content };
 }
 
-function assistantMsg(content: string): OpenRouterMessage {
+function assistantMsg(content: string): LLMMessage {
   return { role: 'assistant', content };
 }
 
 describe('applyToolResultBudget', () => {
   it('should not modify messages within budget', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       userMsg('hi'),
       assistantMsg('hello'),
       toolMsg('short result', 'tc-1'),
@@ -28,7 +28,7 @@ describe('applyToolResultBudget', () => {
   });
 
   it('should truncate largest tool results first when over budget', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       toolMsg('x'.repeat(5000), 'tc-1'),  // 5000 chars
       toolMsg('y'.repeat(3000), 'tc-2'),  // 3000 chars
       toolMsg('z'.repeat(1000), 'tc-3'),  // 1000 chars — smallest, should survive
@@ -48,7 +48,7 @@ describe('applyToolResultBudget', () => {
   });
 
   it('should preserve non-tool messages', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       userMsg('question'),
       assistantMsg('answer'),
       toolMsg('x'.repeat(20000), 'tc-1'),
@@ -67,7 +67,7 @@ describe('applyToolResultBudget', () => {
   });
 
   it('should handle no tool messages', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       userMsg('hi'),
       assistantMsg('hello'),
     ];
@@ -78,7 +78,7 @@ describe('applyToolResultBudget', () => {
   });
 
   it('should add truncation marker with original length', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       toolMsg('x'.repeat(10000), 'tc-1'),
     ];
 

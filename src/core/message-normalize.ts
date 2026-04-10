@@ -10,13 +10,13 @@
  * Ported from old_src/utils/messages.ts normalizeMessagesForAPI() — simplified for SDK.
  */
 
-import type { OpenRouterMessage } from '../llm/message-types.js';
+import type { LLMMessage } from '../llm/message-types.js';
 
 /**
  * Normalize messages before sending to the LLM API.
  * Removes orphaned tool results/calls and empty messages.
  */
-export function normalizeMessagesForAPI(messages: readonly OpenRouterMessage[]): OpenRouterMessage[] {
+export function normalizeMessagesForAPI(messages: readonly LLMMessage[]): LLMMessage[] {
   if (messages.length === 0) return [];
 
   // Collect all tool_call IDs from assistant messages
@@ -37,7 +37,7 @@ export function normalizeMessagesForAPI(messages: readonly OpenRouterMessage[]):
     }
   }
 
-  const result: OpenRouterMessage[] = [];
+  const result: LLMMessage[] = [];
 
   for (const msg of messages) {
     // Remove orphaned tool results (no matching tool_call in any assistant message)

@@ -1,5 +1,5 @@
-import type { OpenRouterMessage } from '../../llm/message-types.js';
-import type { OpenRouterClient } from '../../llm/openrouter-client.js';
+import type { LLMMessage } from '../../llm/message-types.js';
+import type { LLMClient } from '../../llm/llm-client.js';
 import { estimateTokens } from '../../utils/token-counter.js';
 
 export interface AutocompactOptions {
@@ -9,11 +9,11 @@ export interface AutocompactOptions {
 }
 
 export interface AutocompactResult {
-  messages: OpenRouterMessage[];
+  messages: LLMMessage[];
   tokensFreed: number;
 }
 
-function estimateMessagesTokens(messages: readonly OpenRouterMessage[]): number {
+function estimateMessagesTokens(messages: readonly LLMMessage[]): number {
   return messages.reduce((sum, m) => {
     const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
     return sum + estimateTokens(content);
@@ -26,8 +26,8 @@ function estimateMessagesTokens(messages: readonly OpenRouterMessage[]): number 
  * Returns null if compaction not needed or fails.
  */
 export async function autocompact(
-  messages: readonly OpenRouterMessage[],
-  client: OpenRouterClient,
+  messages: readonly LLMMessage[],
+  client: LLMClient,
   options: AutocompactOptions,
 ): Promise<AutocompactResult | null> {
   const { maxContextTokens, compactionThreshold, tailProtection } = options;
@@ -67,12 +67,12 @@ export async function autocompact(
       maxTokens: 1000,
     });
 
-    const summaryMessage: OpenRouterMessage = {
+    const summaryMessage: LLMMessage = {
       role: 'user',
       content: `[Conversation summary — earlier messages were compacted to save context]\n\n${response.content}`,
       // Mark as compaction boundary — should survive subsequent compactions
       _pinned: true,
-    } as OpenRouterMessage & { _pinned?: boolean };
+    } as LLMMessage & { _pinned?: boolean };
 
     const compactedMessages = [
       ...systemMessages,

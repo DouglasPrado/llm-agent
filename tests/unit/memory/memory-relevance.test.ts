@@ -1,17 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { selectRelevantMemories } from '../../../src/memory/memory-relevance.js';
-import type { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
+import type { LLMClient } from '../../../src/llm/llm-client.js';
 
-function createMockClient(response: string): OpenRouterClient {
+function createMockClient(response: string): LLMClient {
   return {
     chat: vi.fn().mockResolvedValue({ content: response }),
-  } as unknown as OpenRouterClient;
+  } as unknown as LLMClient;
 }
 
-function createErrorClient(): OpenRouterClient {
+function createErrorClient(): LLMClient {
   return {
     chat: vi.fn().mockRejectedValue(new Error('API error')),
-  } as unknown as OpenRouterClient;
+  } as unknown as LLMClient;
 }
 
 describe('memory-relevance', () => {

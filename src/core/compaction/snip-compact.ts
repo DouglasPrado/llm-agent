@@ -7,14 +7,14 @@
  * Runs between tool-result-budget and autocompact in the compaction pipeline.
  */
 
-import type { OpenRouterMessage } from '../../llm/message-types.js';
+import type { LLMMessage } from '../../llm/message-types.js';
 
 export interface SnipCompactOptions {
   tailProtection: number;
 }
 
 export interface SnipCompactResult {
-  messages: OpenRouterMessage[];
+  messages: LLMMessage[];
   snippedCount: number;
 }
 
@@ -23,7 +23,7 @@ export interface SnipCompactResult {
  * Preserves: system messages, pinned messages, tail messages.
  */
 export function snipCompact(
-  messages: readonly OpenRouterMessage[],
+  messages: readonly LLMMessage[],
   options: SnipCompactOptions,
 ): SnipCompactResult {
   const { tailProtection } = options;

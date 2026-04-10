@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
+import { LLMClient } from '../../../src/llm/llm-client.js';
 import type { StreamChunk } from '../../../src/llm/message-types.js';
 
 function createSSEResponse(events: string[]): Response {
@@ -18,11 +18,11 @@ function mockFetch(response: Response) {
   return vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
 }
 
-describe('OpenRouterClient', () => {
-  let client: OpenRouterClient;
+describe('LLMClient', () => {
+  let client: LLMClient;
 
   beforeEach(() => {
-    client = new OpenRouterClient({ apiKey: 'test-key', model: 'test/model', baseUrl: 'https://api.test.com/v1' });
+    client = new LLMClient({ apiKey: 'test-key', model: 'test/model', baseUrl: 'https://api.test.com/v1' });
   });
 
   afterEach(() => {
@@ -69,7 +69,7 @@ describe('OpenRouterClient', () => {
 
       await expect(client.chat({
         messages: [{ role: 'user', content: 'Hi' }],
-      })).rejects.toThrow('OpenRouter API error 400');
+      })).rejects.toThrow('LLM API error 400');
     });
   });
 
@@ -148,7 +148,7 @@ describe('OpenRouterClient', () => {
 
   describe('reasoning', () => {
     it('should convert system messages for o1 models', async () => {
-      const o1Client = new OpenRouterClient({ apiKey: 'test', model: 'openai/o1-preview', baseUrl: 'https://api.test.com/v1' });
+      const o1Client = new LLMClient({ apiKey: 'test', model: 'openai/o1-preview', baseUrl: 'https://api.test.com/v1' });
       const fetchSpy = mockFetch(new Response(JSON.stringify({
         choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },

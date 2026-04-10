@@ -3,15 +3,15 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { FileMemorySystem, truncateEntrypointContent } from '../../../src/memory/file-memory-system.js';
-import type { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
+import type { LLMClient } from '../../../src/llm/llm-client.js';
 import type { Logger } from '../../../src/utils/logger.js';
 
-function createMockClient(selectedMemories: string[] = []): OpenRouterClient {
+function createMockClient(selectedMemories: string[] = []): LLMClient {
   return {
     chat: vi.fn().mockResolvedValue({
       content: JSON.stringify({ selected_memories: selectedMemories }),
     }),
-  } as unknown as OpenRouterClient;
+  } as unknown as LLMClient;
 }
 
 function createMockLogger(): Logger {
@@ -26,7 +26,7 @@ function createMockLogger(): Logger {
 describe('FileMemorySystem', () => {
   let tempDir: string;
   let system: FileMemorySystem;
-  let client: OpenRouterClient;
+  let client: LLMClient;
   let logger: Logger;
 
   beforeEach(async () => {

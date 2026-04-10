@@ -1,27 +1,27 @@
 import type { TokenUsage } from '../contracts/entities/token-usage.js';
 
-/** Message format for OpenRouter API */
-export interface OpenRouterMessage {
+/** Message format for OpenAI-compatible APIs */
+export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | OpenRouterContentPart[];
-  tool_calls?: OpenRouterToolCall[];
+  content: string | LLMContentPart[];
+  tool_calls?: LLMToolCall[];
   tool_call_id?: string;
   name?: string;
 }
 
-export interface OpenRouterContentPart {
+export interface LLMContentPart {
   type: 'text' | 'image_url';
   text?: string;
   image_url?: { url: string; detail?: 'auto' | 'low' | 'high' };
 }
 
-export interface OpenRouterToolCall {
+export interface LLMToolCall {
   id: string;
   type: 'function';
   function: { name: string; arguments: string };
 }
 
-/** Tool definition for OpenRouter function calling */
+/** Tool definition for function calling */
 export interface ToolDefinition {
   type: 'function';
   function: {
@@ -39,7 +39,7 @@ export interface ResponseFormat {
 
 /** Parameters for streamChat/chat */
 export interface StreamChatParams {
-  messages: OpenRouterMessage[];
+  messages: LLMMessage[];
   tools?: ToolDefinition[];
   temperature?: number;
   responseFormat?: ResponseFormat;
@@ -61,7 +61,14 @@ export type StreamChunk =
 /** Non-streaming chat response */
 export interface ChatResponse {
   content: string;
-  toolCalls?: OpenRouterToolCall[];
+  toolCalls?: LLMToolCall[];
   finishReason: string;
   usage: TokenUsage;
 }
+
+/** @deprecated Use LLMMessage instead */
+export type OpenRouterMessage = LLMMessage;
+/** @deprecated Use LLMContentPart instead */
+export type OpenRouterContentPart = LLMContentPart;
+/** @deprecated Use LLMToolCall instead */
+export type OpenRouterToolCall = LLMToolCall;

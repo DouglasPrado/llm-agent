@@ -51,6 +51,13 @@ const SkillsConfigSchema = z.object({
   modelDiscovery: z.boolean().default(true),
 });
 
+/** Embedding provider — allows separate API key/URL for embeddings */
+const EmbeddingProviderConfigSchema = z.object({
+  apiKey: z.string().min(1).optional(),
+  baseUrl: z.string().url().optional(),
+  model: z.string().optional(),
+});
+
 /** Full Agent configuration — validated with Zod */
 export const AgentConfigSchema = z.object({
   apiKey: z.string().min(1, 'apiKey is required'),
@@ -105,6 +112,9 @@ export const AgentConfigSchema = z.object({
 
   // Embedding model (for knowledge/RAG)
   embeddingModel: z.string().default('openai/text-embedding-3-small'),
+
+  // Embedding provider (separate API key/URL for embeddings, e.g. direct OpenAI)
+  embedding: EmbeddingProviderConfigSchema.optional(),
 
   // Database path
   dbPath: z.string().default('~/.agent/data.db'),

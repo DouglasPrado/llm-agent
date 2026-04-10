@@ -14,6 +14,7 @@ vi.mock(
     config: {
       agent: { apiKey: 'test-key', model: 'test-model' },
       mcp: { albert: { url: undefined } },
+      database: { url: undefined },
     },
   }),
 );
@@ -23,6 +24,33 @@ vi.mock(
   () => ({
     createTools: vi.fn(() => []),
   }),
+);
+
+vi.mock(
+  '../../../../examples/teams-bot/src/queries.js',
+  () => ({
+    queries: [],
+  }),
+);
+
+vi.mock('pg', () => ({
+  default: { Pool: vi.fn() },
+  Pool: vi.fn(),
+}));
+
+vi.mock(
+  '../../../../examples/teams-bot/src/skills/push-campaign.js',
+  () => ({ pushCampaignSkill: { name: 'push_campaign', description: 'stub', instructions: 'stub', inputSchema: { type: 'object', properties: {} } } }),
+);
+
+vi.mock(
+  '../../../../examples/teams-bot/src/skills/onboarding.js',
+  () => ({ onboardingSkill: { name: 'onboarding', description: 'stub', instructions: 'stub', inputSchema: { type: 'object', properties: {} } } }),
+);
+
+vi.mock(
+  '../../../../examples/teams-bot/src/skills/blog-content.js',
+  () => ({ blogContentSkill: { name: 'blog_content', description: 'stub', instructions: 'stub', inputSchema: { type: 'object', properties: {} } } }),
 );
 
 // Mock fetch to prevent real HTTP calls from Agent internals

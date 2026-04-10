@@ -1,15 +1,15 @@
-import type { OpenRouterClient } from '../llm/openrouter-client.js';
+import type { LLMClient } from '../llm/llm-client.js';
 import { LRUCache } from '../utils/cache.js';
 
 /**
- * Generates embeddings via OpenRouter with LRU caching.
+ * Generates embeddings via LLM API with LRU caching.
  */
 export class EmbeddingService {
-  private readonly client: OpenRouterClient;
+  private readonly client: LLMClient;
   private readonly cache: LRUCache<string, number[]>;
   private readonly model?: string;
 
-  constructor(client: OpenRouterClient, options?: { model?: string; cacheSize?: number }) {
+  constructor(client: LLMClient, options?: { model?: string; cacheSize?: number }) {
     this.client = client;
     this.model = options?.model;
     this.cache = new LRUCache<string, number[]>({ maxSize: options?.cacheSize ?? 10_000, ttl: 3_600_000 });

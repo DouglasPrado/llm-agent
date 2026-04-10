@@ -1,20 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { snipCompact } from '../../../src/core/compaction/snip-compact.js';
-import type { OpenRouterMessage } from '../../../src/llm/message-types.js';
+import type { LLMMessage } from '../../../src/llm/message-types.js';
 
-function toolMsg(content: string, id = 'tc-1'): OpenRouterMessage {
+function toolMsg(content: string, id = 'tc-1'): LLMMessage {
   return { role: 'tool', content, tool_call_id: id };
 }
-function userMsg(content: string): OpenRouterMessage {
+function userMsg(content: string): LLMMessage {
   return { role: 'user', content };
 }
-function assistantMsg(content: string): OpenRouterMessage {
+function assistantMsg(content: string): LLMMessage {
   return { role: 'assistant', content };
 }
 
 describe('snipCompact', () => {
   it('should not remove messages within tail protection', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       userMsg('old'),
       assistantMsg('old reply'),
       userMsg('recent'),
@@ -27,7 +27,7 @@ describe('snipCompact', () => {
   });
 
   it('should remove orphaned tool results from early messages', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       userMsg('q1'),
       assistantMsg('a1'),
       toolMsg('old tool result', 'tc-old'),   // orphaned — no reference later
@@ -44,7 +44,7 @@ describe('snipCompact', () => {
   });
 
   it('should preserve system messages', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       { role: 'system', content: 'You are helpful' },
       toolMsg('old result', 'tc-1'),
       userMsg('recent'),
@@ -62,8 +62,8 @@ describe('snipCompact', () => {
   });
 
   it('should preserve pinned messages', () => {
-    const pinned = { role: 'user' as const, content: 'summary', _pinned: true } as OpenRouterMessage;
-    const messages: OpenRouterMessage[] = [
+    const pinned = { role: 'user' as const, content: 'summary', _pinned: true } as LLMMessage;
+    const messages: LLMMessage[] = [
       pinned,
       toolMsg('old', 'tc-1'),
       userMsg('recent'),

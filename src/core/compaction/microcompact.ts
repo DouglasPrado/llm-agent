@@ -1,4 +1,4 @@
-import type { OpenRouterMessage } from '../../llm/message-types.js';
+import type { LLMMessage } from '../../llm/message-types.js';
 
 export interface MicrocompactOptions {
   maxToolResultChars: number;
@@ -9,7 +9,7 @@ export interface MicrocompactOptions {
 }
 
 export interface MicrocompactResult {
-  messages: OpenRouterMessage[];
+  messages: LLMMessage[];
   truncatedCount: number;
 }
 
@@ -23,7 +23,7 @@ const DEFAULT_TAIL_RATIO = 0.2;
  * Supports per-tool max chars overrides via perToolMaxChars map.
  */
 export function microcompact(
-  messages: readonly OpenRouterMessage[],
+  messages: readonly LLMMessage[],
   options: MicrocompactOptions,
 ): MicrocompactResult {
   const { maxToolResultChars, perToolMaxChars, toolCallIdToName } = options;

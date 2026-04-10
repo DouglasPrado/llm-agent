@@ -20,7 +20,7 @@
 
 import { readFile, writeFile, unlink, stat, readdir, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { OpenRouterClient } from '../llm/openrouter-client.js';
+import type { LLMClient } from '../llm/llm-client.js';
 import type { Logger } from '../utils/logger.js';
 import type { MemoryFile, MemoryHeader, SaveMemoryInput } from './memory-types.js';
 import {
@@ -47,12 +47,12 @@ const THREADS_DIR = 'threads';
 
 export class FileMemorySystem {
   private readonly memoryDir: string;
-  private readonly client: OpenRouterClient;
+  private readonly client: LLMClient;
   private readonly logger: Logger;
   private readonly relevanceModel?: string;
   private writeLock = false;
 
-  constructor(config: FileMemoryConfig, client: OpenRouterClient, logger: Logger) {
+  constructor(config: FileMemoryConfig, client: LLMClient, logger: Logger) {
     this.memoryDir = resolveMemoryDir(config.memoryDir);
     this.client = client;
     this.logger = logger;

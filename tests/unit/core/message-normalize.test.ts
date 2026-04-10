@@ -1,23 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeMessagesForAPI } from '../../../src/core/message-normalize.js';
-import type { OpenRouterMessage } from '../../../src/llm/message-types.js';
+import type { LLMMessage } from '../../../src/llm/message-types.js';
 
-function system(content: string): OpenRouterMessage {
+function system(content: string): LLMMessage {
   return { role: 'system', content };
 }
-function user(content: string): OpenRouterMessage {
+function user(content: string): LLMMessage {
   return { role: 'user', content };
 }
-function assistant(content: string, opts?: { tool_calls?: OpenRouterMessage['tool_calls'] }): OpenRouterMessage {
+function assistant(content: string, opts?: { tool_calls?: LLMMessage['tool_calls'] }): LLMMessage {
   return { role: 'assistant', content, ...(opts?.tool_calls ? { tool_calls: opts.tool_calls } : {}) };
 }
-function tool(content: string, id: string): OpenRouterMessage {
+function tool(content: string, id: string): LLMMessage {
   return { role: 'tool', content, tool_call_id: id };
 }
 
 describe('normalizeMessagesForAPI', () => {
   it('should pass through valid message sequence', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       system('You are helpful'),
       user('Hello'),
       assistant('Hi!'),
@@ -29,7 +29,7 @@ describe('normalizeMessagesForAPI', () => {
 
   it('should ensure tool_result follows tool_use', () => {
     // Valid: assistant with tool_calls → tool result
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       user('search for cats'),
       assistant('', {
         tool_calls: [{ id: 'tc-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
@@ -45,7 +45,7 @@ describe('normalizeMessagesForAPI', () => {
   });
 
   it('should remove orphaned tool results (no matching tool_call)', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       user('hello'),
       assistant('hi'),
       tool('orphaned result', 'tc-nonexistent'),  // no assistant with this tool_call_id
@@ -62,7 +62,7 @@ describe('normalizeMessagesForAPI', () => {
   });
 
   it('should remove assistant tool_calls with no matching tool results', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       user('do something'),
       assistant('', {
         tool_calls: [{ id: 'tc-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
@@ -78,7 +78,7 @@ describe('normalizeMessagesForAPI', () => {
   });
 
   it('should keep system message at the start', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       system('instructions'),
       user('hi'),
       assistant('hello'),
@@ -93,7 +93,7 @@ describe('normalizeMessagesForAPI', () => {
   });
 
   it('should handle multiple tool calls and results', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       user('search and read'),
       assistant('', {
         tool_calls: [
@@ -113,7 +113,7 @@ describe('normalizeMessagesForAPI', () => {
   });
 
   it('should strip empty content assistant messages without tool_calls', () => {
-    const messages: OpenRouterMessage[] = [
+    const messages: LLMMessage[] = [
       user('hi'),
       assistant(''),  // empty, no tool_calls — useless
       user('hello again'),

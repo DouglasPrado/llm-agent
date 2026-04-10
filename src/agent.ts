@@ -9,7 +9,7 @@ import type { ContentPart } from './contracts/entities/content-part.js';
 import type { MessageRole } from './contracts/enums/index.js';
 import type { ContextInjection } from './core/context-builder.js';
 import type { Terminal } from './core/loop-types.js';
-import { OpenRouterClient } from './llm/openrouter-client.js';
+import { LLMClient } from './llm/llm-client.js';
 import { ToolExecutor } from './tools/tool-executor.js';
 import { MCPAdapter, type MCPHealthStatus } from './tools/mcp-adapter.js';
 import { SkillManager } from './skills/skill-manager.js';
@@ -44,7 +44,7 @@ export interface ChatOptions {
  */
 export class Agent {
   private readonly config: AgentConfig;
-  private readonly client: OpenRouterClient;
+  private readonly client: LLMClient;
   private readonly toolExecutor: ToolExecutor;
   private readonly conversations: ConversationManager;
   private readonly logger: Logger;
@@ -68,7 +68,7 @@ export class Agent {
     this.config = config;
     this.logger = createLogger({ level: config.logLevel });
 
-    this.client = new OpenRouterClient({
+    this.client = new LLMClient({
       apiKey: config.apiKey,
       model: config.model,
       baseUrl: config.baseUrl,
@@ -87,8 +87,14 @@ export class Agent {
       this.conversations = new ConversationManager();
     }
 
-    // Embedding service (shared by memory + knowledge)
-    this.embeddingService = new EmbeddingService(this.client, { model: config.embeddingModel });
+    // Embedding service — optionally uses a separate provider (e.g. direct OpenAI)
+    const embApiKey = config.embedding?.apiKey ?? config.apiKey;
+    const embBaseUrl = config.embedding?.baseUrl ?? config.baseUrl;
+    const embModel = config.embedding?.model ?? config.embeddingModel;
+    const embeddingClient = (embApiKey !== config.apiKey || embBaseUrl !== config.baseUrl)
+      ? new LLMClient({ apiKey: embApiKey, model: embModel, baseUrl: embBaseUrl })
+      : this.client;
+    this.embeddingService = new EmbeddingService(embeddingClient, { model: embModel });
 
     // Memory subsystem (file-based)
     if (config.memory?.enabled !== false) {

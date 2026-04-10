@@ -9,7 +9,7 @@
  * Ported from old_src/utils/toolResultStorage.ts applyToolResultBudget().
  */
 
-import type { OpenRouterMessage } from '../../llm/message-types.js';
+import type { LLMMessage } from '../../llm/message-types.js';
 
 const HEAD_RATIO = 0.7;
 const TAIL_RATIO = 0.2;
@@ -19,7 +19,7 @@ export interface ToolResultBudgetOptions {
 }
 
 export interface ToolResultBudgetResult {
-  messages: OpenRouterMessage[];
+  messages: LLMMessage[];
   truncatedCount: number;
 }
 
@@ -28,7 +28,7 @@ export interface ToolResultBudgetResult {
  * Truncates the largest tool results first until total is within budget.
  */
 export function applyToolResultBudget(
-  messages: readonly OpenRouterMessage[],
+  messages: readonly LLMMessage[],
   options: ToolResultBudgetOptions,
 ): ToolResultBudgetResult {
   const { maxTotalToolResultChars } = options;

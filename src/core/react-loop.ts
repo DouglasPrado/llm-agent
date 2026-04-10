@@ -1,6 +1,6 @@
-import type { OpenRouterClient } from '../llm/openrouter-client.js';
+import type { LLMClient } from '../llm/llm-client.js';
 import type { ToolExecutor } from '../tools/tool-executor.js';
-import type { OpenRouterMessage } from '../llm/message-types.js';
+import type { LLMMessage } from '../llm/message-types.js';
 import type { TokenUsage } from '../contracts/entities/token-usage.js';
 import type { AgentEvent, RecoveryReason } from '../contracts/entities/agent-event.js';
 import type { OnToolError } from '../contracts/enums/index.js';
@@ -31,7 +31,7 @@ export interface TokenBudgetConfig {
 }
 
 export interface ReactLoopConfig {
-  client: OpenRouterClient;
+  client: LLMClient;
   toolExecutor: ToolExecutor;
   model: string;
   maxIterations: number;
@@ -64,7 +64,7 @@ export interface ReactLoopConfig {
  * State is immutable — replaced atomically at each continue site.
  */
 export async function* executeReactLoop(
-  initialMessages: OpenRouterMessage[],
+  initialMessages: LLMMessage[],
   config: ReactLoopConfig,
 ): AsyncGenerator<AgentEvent, Terminal> {
   const {
@@ -111,7 +111,7 @@ export async function* executeReactLoop(
     }
 
     // --- Compaction pipeline (before LLM call) ---
-    let compactedMessages = [...messages] as OpenRouterMessage[];
+    let compactedMessages = [...messages] as LLMMessage[];
 
     // 0. Tool result budget — aggregate truncation (largest first)
     if (maxContextTokens) {
@@ -174,7 +174,7 @@ export async function* executeReactLoop(
     let finishReason = '';
     let turnOutputTokens = 0;
     const toolCalls: Array<{ id: string; name: string; arguments: string }> = [];
-    const earlyToolResults: OpenRouterMessage[] = []; // Tool results completed during streaming
+    const earlyToolResults: LLMMessage[] = []; // Tool results completed during streaming
 
     // --- Stream from LLM ---
     const streamingExecutor = new StreamingToolExecutor(toolExecutor, signal);
@@ -232,7 +232,7 @@ export async function* executeReactLoop(
       }
 
       // --- Build assistant message ---
-      const assistantMessage: OpenRouterMessage = { role: 'assistant', content: fullText };
+      const assistantMessage: LLMMessage = { role: 'assistant', content: fullText };
       if (toolCalls.length > 0) {
         assistantMessage.tool_calls = toolCalls.map(tc => ({
           id: tc.id,
@@ -269,7 +269,7 @@ export async function* executeReactLoop(
 
         yield { type: 'recovery', reason: 'max_output_tokens_recovery', attempt: recoveryCount };
 
-        const resumeMessage: OpenRouterMessage = {
+        const resumeMessage: LLMMessage = {
           role: 'user',
           content: '[System: Your response was truncated. Resume directly from where you stopped — no recap, no repetition.]',
         };
@@ -302,7 +302,7 @@ export async function* executeReactLoop(
           if (hookResult.blockingErrors.length > 0) {
             yield { type: 'recovery', reason: 'stop_hook_blocking', attempt: 1 };
 
-            const errorMessages: OpenRouterMessage[] = hookResult.blockingErrors.map(err => ({
+            const errorMessages: LLMMessage[] = hookResult.blockingErrors.map(err => ({
               role: 'user' as const,
               content: `[Stop hook error: ${err}]`,
             }));
@@ -329,7 +329,7 @@ export async function* executeReactLoop(
             budgetContinuationCount++;
             yield { type: 'recovery', reason: 'token_budget_continuation', attempt: budgetContinuationCount };
 
-            const nudgeMessage: OpenRouterMessage = {
+            const nudgeMessage: LLMMessage = {
               role: 'user',
               content: '[System: Continue working. You still have budget remaining.]',
             };
@@ -351,7 +351,7 @@ export async function* executeReactLoop(
       }
 
       // --- Collect remaining tool results (include early results from streaming phase) ---
-      const toolResultMessages: OpenRouterMessage[] = [...earlyToolResults];
+      const toolResultMessages: LLMMessage[] = [...earlyToolResults];
       let hasToolError = false;
       const touchedFilePaths: string[] = [];
 
@@ -372,7 +372,7 @@ export async function* executeReactLoop(
         if (completed.result.isError) hasToolError = true;
 
         // Pin skill tool results so they survive compaction
-        const toolResultMsg: OpenRouterMessage = { role: 'tool', content: completed.result.content, tool_call_id: completed.id };
+        const toolResultMsg: LLMMessage = { role: 'tool', content: completed.result.content, tool_call_id: completed.id };
         if (completed.name === SKILL_TOOL_NAME) {
           (toolResultMsg as unknown as Record<string, unknown>)._pinned = true;
         }

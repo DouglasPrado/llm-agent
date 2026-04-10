@@ -1,7 +1,7 @@
-import type { OpenRouterMessage } from '../llm/message-types.js';
+import type { LLMMessage } from '../llm/message-types.js';
 
 export interface StopHookContext {
-  messages: readonly OpenRouterMessage[];
+  messages: readonly LLMMessage[];
   assistantText: string;
   turnCount: number;
 }

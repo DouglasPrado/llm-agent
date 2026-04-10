@@ -5,7 +5,7 @@
  * Ported from old_src/utils/contextAnalysis.ts pattern.
  */
 
-import type { OpenRouterMessage } from '../llm/message-types.js';
+import type { LLMMessage } from '../llm/message-types.js';
 import { estimateTokens } from '../utils/token-counter.js';
 
 export interface ContextAnalysis {
@@ -24,7 +24,7 @@ export interface ContextAnalysis {
 /**
  * Analyze context messages and return token breakdown.
  */
-export function analyzeContext(messages: readonly OpenRouterMessage[]): ContextAnalysis {
+export function analyzeContext(messages: readonly LLMMessage[]): ContextAnalysis {
   const byRole = { system: 0, user: 0, assistant: 0, tool: 0 };
   let totalTokens = 0;
   let toolResultCount = 0;

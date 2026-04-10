@@ -9,13 +9,13 @@ import {
   type ForkFn,
 } from '../../../src/memory/memory-extractor.js';
 import { FileMemorySystem } from '../../../src/memory/file-memory-system.js';
-import type { OpenRouterClient } from '../../../src/llm/openrouter-client.js';
+import type { LLMClient } from '../../../src/llm/llm-client.js';
 import type { Logger } from '../../../src/utils/logger.js';
 
-function createMockClient(): OpenRouterClient {
+function createMockClient(): LLMClient {
   return {
     chat: vi.fn().mockResolvedValue({ content: '[]' }),
-  } as unknown as OpenRouterClient;
+  } as unknown as LLMClient;
 }
 
 function createMockLogger(): Logger {

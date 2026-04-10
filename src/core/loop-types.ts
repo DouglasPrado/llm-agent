@@ -1,4 +1,4 @@
-import type { OpenRouterMessage } from '../llm/message-types.js';
+import type { LLMMessage } from '../llm/message-types.js';
 import type { TokenUsage } from '../contracts/entities/token-usage.js';
 
 // --- Terminal (loop exit) ---
@@ -45,7 +45,7 @@ export interface AutoCompactTracking {
 }
 
 export interface LoopState {
-  readonly messages: readonly OpenRouterMessage[];
+  readonly messages: readonly LLMMessage[];
   readonly turnCount: number;
   readonly consecutiveErrors: number;
   readonly maxOutputTokensRecoveryCount: number;
@@ -58,7 +58,7 @@ export interface LoopState {
 }
 
 /** Create initial loop state from the starting messages */
-export function createInitialState(messages: OpenRouterMessage[]): LoopState {
+export function createInitialState(messages: LLMMessage[]): LoopState {
   return {
     messages,
     turnCount: 1,
