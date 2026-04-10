@@ -6,6 +6,7 @@ const mockAgent = {
   getUsage: vi.fn().mockReturnValue({ inputTokens: 100, outputTokens: 50, totalTokens: 150 }),
   ingestKnowledge: vi.fn().mockResolvedValue(undefined),
   searchKnowledge: vi.fn().mockResolvedValue([]),
+  clearHistory: vi.fn(),
   stream: vi.fn(),
   destroy: vi.fn(),
 };

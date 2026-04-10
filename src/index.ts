@@ -27,6 +27,10 @@ export {
 } from './tools/builtin/index.js';
 export type { AskUserOptions } from './tools/builtin/index.js';
 
+// SQL query tools
+export { createSqlTools } from './tools/sql/index.js';
+export type { SqlToolFactoryOptions, SqlQueryRunner, SqlQueryDef } from './tools/sql/index.js';
+
 // JSON Schema → Zod
 export { jsonSchemaToZod } from './tools/json-schema-to-zod.js';
 

@@ -4,7 +4,7 @@ import {
   ConfigurationBotFrameworkAuthentication,
 } from 'botbuilder';
 import { config } from './config.js';
-import { destroyAll } from './agent-factory.js';
+import { destroyAll, validateMCP } from './agent-factory.js';
 import { AgentXBot } from './handlers.js';
 
 // Bot Framework authentication
@@ -43,12 +43,15 @@ app.get('/health', (_req, res) => {
 });
 
 // Start server
-const server = app.listen(config.server.port, () => {
+const server = app.listen(config.server.port, async () => {
   console.log(`Teams bot listening on port ${config.server.port}`);
   console.log(`Endpoint: POST http://localhost:${config.server.port}/api/messages`);
   console.log(`Model: ${config.agent.model}`);
   console.log(`Tavily: ${config.tavily.apiKey ? 'enabled' : 'disabled'}`);
-  console.log(`MCP Albert: ${config.mcp.albert.url ? 'enabled' : 'disabled'}`);
+
+  const mcp = await validateMCP();
+  console.log(`MCP Albert: ${mcp.status}${mcp.reason ? ` (${mcp.reason})` : ''}`);
+
   console.log(`Memory: enabled`);
   console.log('Waiting for messages...');
 });

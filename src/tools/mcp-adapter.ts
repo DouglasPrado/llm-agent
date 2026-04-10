@@ -89,6 +89,8 @@ export class MCPAdapter {
 
   /**
    * Connect to an MCP server and register its tools.
+   * For URL-based transports (sse/http), auto-detects the correct transport
+   * by trying StreamableHTTP first, then falling back to SSE.
    */
   async connect(config: MCPConnectionConfig): Promise<AgentTool[]> {
     if (this.connections.has(config.name)) {
@@ -97,10 +99,7 @@ export class MCPAdapter {
 
     const { Client } = await loadSDK();
 
-    const client = new Client({ name: `agentx-${config.name}`, version: '0.1.0' }) as MCPClient;
-    const transport = await createTransport(config);
-
-    await client.connect(transport);
+    const { client, transport } = await this.connectWithFallback(Client, config);
 
     // List tools from server
     const { tools: mcpTools } = await client.listTools();
@@ -339,6 +338,42 @@ export class MCPAdapter {
         }
       },
     };
+  }
+
+  /**
+   * Connect with transport auto-detection for URL-based configs.
+   * When transport is 'auto', tries StreamableHTTP first then falls back to SSE.
+   * Explicit 'sse' or 'http' use that transport directly.
+   */
+  private async connectWithFallback(
+    Client: new (opts: { name: string; version: string }) => MCPClient,
+    config: MCPConnectionConfig,
+  ): Promise<{ client: MCPClient; transport: unknown }> {
+    // Explicit transport — use directly, no fallback
+    if (config.transport !== 'auto') {
+      const client = new Client({ name: `agentx-${config.name}`, version: '0.1.0' }) as MCPClient;
+      const transport = await createTransport(config);
+      await client.connect(transport);
+      return { client, transport };
+    }
+
+    // Auto-detect: try StreamableHTTP first, fall back to SSE
+    const requestInit: RequestInit | undefined = config.headers ? { headers: config.headers } : undefined;
+
+    try {
+      const client = new Client({ name: `agentx-${config.name}`, version: '0.1.0' }) as MCPClient;
+      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+      const transport = new StreamableHTTPClientTransport(new URL(config.url!), { requestInit });
+      await client.connect(transport);
+      return { client, transport };
+    } catch {
+      // StreamableHTTP failed — try SSE
+      const client = new Client({ name: `agentx-${config.name}`, version: '0.1.0' }) as MCPClient;
+      const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
+      const transport = new SSEClientTransport(new URL(config.url!), { requestInit });
+      await client.connect(transport);
+      return { client, transport };
+    }
   }
 
   private async healthCheck(name: string): Promise<void> {

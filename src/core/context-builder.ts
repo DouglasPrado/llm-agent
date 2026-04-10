@@ -140,6 +140,7 @@ function chatMessageToOpenRouter(msg: ChatMessage): OpenRouterMessage {
 function contentPartsToOpenRouter(parts: ContentPart[]): string {
   return parts.map(p => {
     if (p.type === 'text') return p.text;
-    return `[image: ${p.image_url.url}]`;
-  }).join('');
+    if (p.type === 'image_url' && p.image_url?.url) return `[image: ${p.image_url.url}]`;
+    return '';
+  }).filter(Boolean).join('');
 }

@@ -4,7 +4,7 @@ import type { VectorStore, ConversationStore } from '../contracts/entities/store
 /** MCP server connection configuration */
 const MCPConnectionConfigSchema = z.object({
   name: z.string().min(1),
-  transport: z.enum(['stdio', 'sse', 'http']),
+  transport: z.enum(['stdio', 'sse', 'http', 'auto']),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   url: z.string().url().optional(),

@@ -6,8 +6,15 @@ import { matchAnyGlob } from './skill-glob.js';
 
 export interface SkillMatchResult {
   skill: AgentSkill;
-  matchType: 'prefix' | 'alias' | 'custom' | 'semantic';
+  matchType: 'prefix' | 'alias' | 'custom' | 'semantic' | 'sticky';
   score: number;
+}
+
+interface StickySession {
+  skillName: string;
+  activatedAt: number;
+  /** Infinity for sticky=true, N for sticky=N (decremented each turn) */
+  turnsRemaining: number;
 }
 
 const MAX_LISTING_DESC_CHARS = 250;
@@ -27,6 +34,8 @@ export class SkillManager {
   private readonly activatedSkills = new Map<string, AgentSkill>();
   /** Tracks which skills have been invoked in this session */
   private readonly invokedSkills = new Set<string>();
+  /** Sticky skill sessions per thread — outer key: threadId, inner key: skillName */
+  private readonly stickySessions = new Map<string, Map<string, StickySession>>();
 
   private readonly embeddingService?: EmbeddingService;
   private readonly maxActiveSkills: number;
@@ -117,12 +126,36 @@ export class SkillManager {
    */
   async match(input: string, context: { threadId: string }): Promise<AgentSkill[]> {
     const matches: SkillMatchResult[] = [];
+    const matchedNames = new Set<string>();
     const eligible = this.getEligibleSkills();
 
+    // 0. Sticky sessions — re-inject skills that are active for this thread
+    const threadSessions = this.stickySessions.get(context.threadId);
+    if (threadSessions) {
+      for (const [skillName, session] of threadSessions) {
+        if (session.turnsRemaining <= 0) {
+          threadSessions.delete(skillName);
+          continue;
+        }
+        const skill = this.skills.get(skillName) ?? this.activatedSkills.get(skillName);
+        if (skill) {
+          matches.push({ skill, matchType: 'sticky', score: 0.9 });
+          matchedNames.add(skillName);
+        }
+      }
+      // Clean up empty thread entry
+      if (threadSessions.size === 0) {
+        this.stickySessions.delete(context.threadId);
+      }
+    }
+
     for (const skill of eligible) {
+      if (matchedNames.has(skill.name)) continue;
+
       // 1. Prefix match (highest priority)
       if (skill.triggerPrefix && input.startsWith(skill.triggerPrefix)) {
         matches.push({ skill, matchType: 'prefix', score: 1.0 });
+        matchedNames.add(skill.name);
         continue;
       }
 
@@ -134,6 +167,7 @@ export class SkillManager {
         });
         if (matched) {
           matches.push({ skill, matchType: 'alias', score: 0.95 });
+          matchedNames.add(skill.name);
           continue;
         }
       }
@@ -141,11 +175,12 @@ export class SkillManager {
       // 3. Custom match function
       if (skill.match && skill.match(input, { threadId: context.threadId, recentMessages: 0 })) {
         matches.push({ skill, matchType: 'custom', score: 0.8 });
+        matchedNames.add(skill.name);
         continue;
       }
     }
 
-    // 4. Semantic match — only if no prefix/alias/custom matches found
+    // 4. Semantic match — only if no prefix/alias/custom/sticky matches found
     //    and there are skills that lack explicit matchers
     if (this.embeddingService && matches.length === 0 && this.hasSkillsNeedingSemantic(eligible)) {
       const semanticMatches = await this.semanticMatch(input, eligible);
@@ -157,12 +192,20 @@ export class SkillManager {
       if (a.skill.exclusive && !b.skill.exclusive) return -1;
       if (!a.skill.exclusive && b.skill.exclusive) return 1;
 
-      const typeOrder: Record<string, number> = { prefix: 4, alias: 3, custom: 2, semantic: 1 };
+      const typeOrder: Record<string, number> = { prefix: 4, sticky: 3.5, alias: 3, custom: 2, semantic: 1 };
       const typeDiff = (typeOrder[b.matchType] ?? 0) - (typeOrder[a.matchType] ?? 0);
       if (typeDiff !== 0) return typeDiff;
 
       return (b.skill.priority ?? 0) - (a.skill.priority ?? 0);
     });
+
+    // Activate sticky sessions for newly matched skills and decrement turn counters
+    for (const match of sorted) {
+      if (match.skill.sticky) {
+        this.activateStickySession(context.threadId, match.skill);
+      }
+    }
+    this.decrementStickySessions(context.threadId);
 
     // If exclusive skill matched, return only it
     if (sorted[0]?.skill.exclusive) {
@@ -255,8 +298,52 @@ export class SkillManager {
   }
 
   // ---------------------------------------------------------------------------
+  // Sticky session management
+  // ---------------------------------------------------------------------------
+
+  /** Remove a single sticky skill from a thread */
+  clearStickySkill(threadId: string, skillName: string): void {
+    this.stickySessions.get(threadId)?.delete(skillName);
+  }
+
+  /** Remove all sticky skills for a thread (e.g. on clearHistory) */
+  clearStickySkills(threadId: string): void {
+    this.stickySessions.delete(threadId);
+  }
+
+  /** Remove all sticky sessions across all threads (e.g. on destroy) */
+  clearAllStickySessions(): void {
+    this.stickySessions.clear();
+  }
+
+  // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  private activateStickySession(threadId: string, skill: AgentSkill): void {
+    if (!this.stickySessions.has(threadId)) {
+      this.stickySessions.set(threadId, new Map());
+    }
+    const sessions = this.stickySessions.get(threadId)!;
+    // Don't reset an existing session (first activation wins)
+    if (!sessions.has(skill.name)) {
+      sessions.set(skill.name, {
+        skillName: skill.name,
+        activatedAt: Date.now(),
+        turnsRemaining: skill.sticky === true ? Infinity : (skill.sticky as number),
+      });
+    }
+  }
+
+  private decrementStickySessions(threadId: string): void {
+    const sessions = this.stickySessions.get(threadId);
+    if (!sessions) return;
+    for (const session of sessions.values()) {
+      if (session.turnsRemaining !== Infinity) {
+        session.turnsRemaining--;
+      }
+    }
+  }
 
   /** Get all skills eligible for matching (unconditional + activated) */
   private getEligibleSkills(): AgentSkill[] {

@@ -11,6 +11,9 @@ function required(key: string): string {
 }
 
 export const config = {
+  database: {
+    url: process.env.DATABASE_URL,
+  },
   teams: {
     appId: required('MICROSOFT_APP_ID'),
     appPassword: required('MICROSOFT_APP_PASSWORD'),

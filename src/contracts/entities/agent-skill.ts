@@ -39,6 +39,12 @@ export interface AgentSkill {
   /** Computational effort hint (1-10) */
   effort?: number;
 
+  // --- Session persistence ---
+  /** Keeps the skill active across subsequent turns after initial activation.
+   *  true = active until clearStickySkills() is called (e.g. on clearHistory).
+   *  number = number of additional turns to remain active after activation (e.g. 10). */
+  sticky?: boolean | number;
+
   // --- Activation ---
   /** Glob patterns — skill only activates when matching files are touched */
   paths?: string[];

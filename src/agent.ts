@@ -547,6 +547,13 @@ export class Agent {
     return this.conversations.getHistory(threadId ?? 'default');
   }
 
+  clearHistory(threadId?: string): void {
+    const tid = threadId ?? 'default';
+    this.conversations.clearThread(tid);
+    this.skillManager?.clearStickySkills(tid);
+    this.logger.info('Thread cleared', { threadId: tid });
+  }
+
   async connectMCP(config: MCPConnectionConfigInput): Promise<void> {
     // Apply defaults (timeout, maxRetries, etc.)
     const parsed = {
@@ -616,6 +623,7 @@ export class Agent {
 
   async destroy(): Promise<void> {
     this.destroyed = true;
+    this.skillManager?.clearAllStickySessions();
     await this.mcpAdapter.disconnectAll();
     this.database?.close();
     this.logger.info('Agent destroyed');

@@ -348,6 +348,142 @@ describe('SkillManager', () => {
     expect(manager.getInvokedSkills()).toEqual(['review', 'translate']);
   });
 
+  // --- Sticky sessions ---
+
+  describe('sticky sessions', () => {
+    it('should persist sticky skill across turns', async () => {
+      manager.register(createSkill({
+        name: 'wizard',
+        triggerPrefix: '/wizard',
+        sticky: true,
+      }));
+
+      // Turn 1: match by prefix → activates sticky
+      const turn1 = await manager.match('/wizard start', { threadId: 't1' });
+      expect(turn1).toHaveLength(1);
+      expect(turn1[0]!.name).toBe('wizard');
+
+      // Turn 2: no prefix match → sticky keeps it alive
+      const turn2 = await manager.match('some follow-up answer', { threadId: 't1' });
+      expect(turn2).toHaveLength(1);
+      expect(turn2[0]!.name).toBe('wizard');
+
+      // Turn 3: still sticky
+      const turn3 = await manager.match('another answer', { threadId: 't1' });
+      expect(turn3).toHaveLength(1);
+      expect(turn3[0]!.name).toBe('wizard');
+    });
+
+    it('should isolate sticky sessions per thread', async () => {
+      manager.register(createSkill({
+        name: 'wizard',
+        triggerPrefix: '/wizard',
+        sticky: true,
+      }));
+
+      // Activate in thread t1
+      await manager.match('/wizard start', { threadId: 't1' });
+
+      // Thread t2 should NOT have sticky
+      const t2matches = await manager.match('some input', { threadId: 't2' });
+      expect(t2matches).toHaveLength(0);
+
+      // Thread t1 should still have it
+      const t1matches = await manager.match('follow-up', { threadId: 't1' });
+      expect(t1matches).toHaveLength(1);
+    });
+
+    it('should expire sticky after N turns', async () => {
+      manager.register(createSkill({
+        name: 'wizard',
+        triggerPrefix: '/wizard',
+        sticky: 3,
+      }));
+
+      // Turn 1: activates sticky (turnsRemaining=3), then decremented to 2
+      await manager.match('/wizard start', { threadId: 't1' });
+
+      // Turn 2: turnsRemaining=2, matched via sticky, decremented to 1
+      const turn2 = await manager.match('answer 1', { threadId: 't1' });
+      expect(turn2).toHaveLength(1);
+
+      // Turn 3: turnsRemaining=1, matched via sticky, decremented to 0
+      const turn3 = await manager.match('answer 2', { threadId: 't1' });
+      expect(turn3).toHaveLength(1);
+
+      // Turn 4: turnsRemaining=0, cleaned up → not matched
+      const turn4 = await manager.match('answer 3', { threadId: 't1' });
+      expect(turn4).toHaveLength(0);
+    });
+
+    it('should clear sticky skills for a thread', async () => {
+      manager.register(createSkill({
+        name: 'wizard',
+        triggerPrefix: '/wizard',
+        sticky: true,
+      }));
+
+      await manager.match('/wizard start', { threadId: 't1' });
+      manager.clearStickySkills('t1');
+
+      const matches = await manager.match('follow-up', { threadId: 't1' });
+      expect(matches).toHaveLength(0);
+    });
+
+    it('should clear all sticky sessions', async () => {
+      manager.register(createSkill({
+        name: 'wizard',
+        triggerPrefix: '/wizard',
+        sticky: true,
+      }));
+
+      await manager.match('/wizard start', { threadId: 't1' });
+      await manager.match('/wizard start', { threadId: 't2' });
+
+      manager.clearAllStickySessions();
+
+      const t1 = await manager.match('follow-up', { threadId: 't1' });
+      const t2 = await manager.match('follow-up', { threadId: 't2' });
+      expect(t1).toHaveLength(0);
+      expect(t2).toHaveLength(0);
+    });
+
+    it('should not duplicate sticky match when prefix also matches', async () => {
+      manager.register(createSkill({
+        name: 'wizard',
+        triggerPrefix: '/wizard',
+        sticky: true,
+      }));
+
+      // Activate
+      await manager.match('/wizard start', { threadId: 't1' });
+
+      // Use prefix again while sticky is active — should return 1, not 2
+      const matches = await manager.match('/wizard more', { threadId: 't1' });
+      expect(matches).toHaveLength(1);
+    });
+
+    it('should respect exclusive with sticky', async () => {
+      manager.register(createSkill({
+        name: 'wizard',
+        triggerPrefix: '/wizard',
+        sticky: true,
+        exclusive: true,
+      }));
+      manager.register(createSkill({
+        name: 'other',
+        match: () => true,
+      }));
+
+      await manager.match('/wizard start', { threadId: 't1' });
+
+      // Sticky + exclusive should block other skills
+      const matches = await manager.match('follow-up', { threadId: 't1' });
+      expect(matches).toHaveLength(1);
+      expect(matches[0]!.name).toBe('wizard');
+    });
+  });
+
   // --- File-based loading ---
 
   describe('loadFromDirectory', () => {

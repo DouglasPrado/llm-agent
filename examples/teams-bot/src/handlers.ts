@@ -35,7 +35,7 @@ export class AgentXBot extends TeamsActivityHandler {
     // Route commands
     if (text === "/start" || text.toLowerCase() === "start") {
       await this.handleStart(context);
-    } else if (text === "/reset" || text.toLowerCase() === "reset") {
+    } else if (text === "/reset" || text.toLowerCase() === "reset" || text === "/limpar") {
       await this.handleReset(context);
     } else if (text === "/usage") {
       await this.handleUsage(context);
@@ -54,7 +54,7 @@ export class AgentXBot extends TeamsActivityHandler {
         "I'm an AI assistant powered by AgentX SDK.\n\n" +
         "**Commands:**\n" +
         "- `/start` — This message\n" +
-        "- `/reset` — Clear conversation history\n" +
+        "- `/limpar` — Clear conversation history\n" +
         "- `/usage` — Show token usage\n" +
         "- `/memory <text>` — Save a memory\n" +
         "- `/learn <text>` — Teach me a document (RAG)\n\n" +
@@ -65,15 +65,8 @@ export class AgentXBot extends TeamsActivityHandler {
   private async handleReset(context: TurnContext): Promise<void> {
     const conversationId = context.activity.conversation.id;
     const agent = await getAgent(conversationId);
-    try {
-      await agent.remember(
-        `Conversation was reset by the user at ${new Date().toISOString()}`,
-        "project",
-      );
-    } catch {
-      // Memory might not be enabled
-    }
-    await context.sendActivity("Conversation cleared. Starting fresh.");
+    agent.clearHistory(conversationId);
+    await context.sendActivity("Conversa limpa. Começando do zero.");
   }
 
   private async handleUsage(context: TurnContext): Promise<void> {

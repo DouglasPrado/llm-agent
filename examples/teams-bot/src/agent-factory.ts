@@ -1,17 +1,30 @@
-import { Agent } from 'agentx-sdk';
+import { Agent, createSqlTools } from 'agentx-sdk';
 import { config } from './config.js';
 import { createTools } from './tools.js';
+import { queries } from './queries.js';
+import { pushCampaignSkill } from './skills/push-campaign.js';
+import { onboardingSkill } from './skills/onboarding.js';
+import { blogContentSkill } from './skills/blog-content.js';
+import pg from 'pg';
 
 interface PoolEntry {
   agent: Agent;
   lastUsedAt: number;
 }
 
+/** Shared Postgres pool — single connection pool for all agents. */
+const pgPool = config.database.url
+  ? new pg.Pool({ connectionString: config.database.url, max: 10 })
+  : null;
+
 /** One agent per conversation — full isolation of state, tools, and memory. */
 const pool = new Map<string, PoolEntry>();
 
 /** Conversations currently being initialized — prevents duplicate creation. */
 const initializing = new Map<string, Promise<Agent>>();
+
+/** MCP connectivity validated at startup — skip per-agent connect if disabled. */
+let mcpValidated: { status: 'enabled' | 'disabled' } | null = null;
 
 /** Cleanup idle agents every 5 minutes. */
 const CLEANUP_INTERVAL = 5 * 60_000;
@@ -30,6 +43,13 @@ CRITICAL RULES FOR TOOL USAGE:
 - If the user says "obrigado", "ok", "entendi", just respond naturally WITHOUT calling any tool.
 - Think before acting: does this message require data from an external system? If yes, USE your tools. If no, just respond.
 - NEVER refuse a data request claiming you can't access the platform — you have full tool access.
+
+SQL QUERIES (run_query tool):
+- For data questions, call run_query IMMEDIATELY. The tool description lists all available queries and their params.
+- NEVER ask the user for structured parameters. Extract everything from their natural language message.
+- All nullable params accept null — use null when the user doesn't mention that filter.
+- Convert relative time expressions: "últimos 7 dias" → days_ago=7, "último mês" → days_ago=30, "última semana" → days_ago=7, "hoje"/"ontem" → days_ago=1, "este ano" → days_ago=365. No period → null.
+- NEVER ask for dates in YYYY-MM-DD. ALWAYS interpret and convert yourself.
 
 RESPONSE STYLE:
 - Answer ONLY what was asked. Nothing more.
@@ -104,8 +124,15 @@ async function createAgent(conversationId: string): Promise<Agent> {
     agent.addTool(tool);
   }
 
-  // Connect MCP servers
-  if (config.mcp.albert.url) {
+  // Register SQL query tools (search_queries + run_query)
+  if (pgPool) {
+    for (const tool of createSqlTools({ pool: pgPool, queries })) {
+      agent.addTool(tool);
+    }
+  }
+
+  // Connect MCP servers (skip if startup validation already failed)
+  if (config.mcp.albert.url && mcpValidated?.status !== 'disabled') {
     try {
       await agent.connectMCP({
         name: 'albert',
@@ -114,10 +141,18 @@ async function createAgent(conversationId: string): Promise<Agent> {
         headers: config.mcp.albert.headers,
         timeout: 60_000,
       });
+      const health = agent.getHealth();
+      const mcpTools = health.servers.find(s => s.name === 'albert')?.toolCount ?? 0;
+      console.log(`[${conversationId}] MCP albert connected — ${mcpTools} tools loaded`);
     } catch (error) {
-      console.error(`[${conversationId}] Failed to connect MCP albert:`, error instanceof Error ? error.message : error);
+      console.error(`[${conversationId}] ⚠️  MCP albert FAILED — tools will NOT be available:`, error instanceof Error ? error.message : error);
     }
   }
+
+  // Register skills
+  agent.addSkill(pushCampaignSkill);
+  agent.addSkill(onboardingSkill);
+  agent.addSkill(blogContentSkill);
 
   console.log(`[pool] Agent created for conversation ${conversationId.slice(0, 20)}... (pool size: ${pool.size + 1})`);
   return agent;
@@ -145,6 +180,44 @@ export async function destroyAll(): Promise<void> {
     console.log(`[pool] Destroying agent ${id.slice(0, 20)}...`);
     return e.agent.destroy();
   }));
+}
+
+/**
+ * Validates MCP connectivity at startup.
+ * Returns 'enabled' if connection succeeds, 'disabled' with reason otherwise.
+ */
+export async function validateMCP(): Promise<{ status: 'enabled' | 'disabled'; reason?: string }> {
+  if (!config.mcp.albert.url) {
+    mcpValidated = { status: 'disabled' };
+    return { status: 'disabled', reason: 'no URL configured' };
+  }
+
+  // Quick probe — create a throwaway agent, attempt MCP connect, then destroy
+  const agent = Agent.create({
+    apiKey: config.agent.apiKey,
+    model: config.agent.model,
+    memory: { enabled: false },
+    knowledge: { enabled: false },
+    logLevel: 'error',
+  });
+
+  try {
+    await agent.connectMCP({
+      name: 'albert',
+      transport: 'sse',
+      url: config.mcp.albert.url,
+      headers: config.mcp.albert.headers,
+      timeout: 10_000,
+    });
+    await agent.destroy();
+    mcpValidated = { status: 'enabled' };
+    return { status: 'enabled' };
+  } catch (error) {
+    await agent.destroy().catch(() => {});
+    const message = error instanceof Error ? error.message : String(error);
+    mcpValidated = { status: 'disabled' };
+    return { status: 'disabled', reason: message };
+  }
 }
 
 /** Pool stats for monitoring. */

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Agent, AgentTool } from 'agentx-sdk';
+import { createWebFetchTool } from 'agentx-sdk';
 import { config } from './config.js';
 
 /**
@@ -85,6 +86,9 @@ export function createTools(getAgent: () => Agent): AgentTool[] {
       return `Current date/time (${args.timezone}): ${formatted}`;
     },
   });
+
+  // Web fetch (access any URL, returns plain text)
+  tools.push(createWebFetchTool());
 
   return tools;
 }
