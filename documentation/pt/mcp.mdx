@@ -1,0 +1,247 @@
+---
+title: "MCP (Model Context Protocol)"
+description: "Conecte servidores MCP para expandir as capacidades do agente com tools, prompts e resources externas"
+---
+
+# MCP (Model Context Protocol)
+
+O MCP (Model Context Protocol) permite conectar servidores externos ao agente. Servidores MCP expoe tools, prompts e resources que o agente pode usar como se fossem nativos.
+
+<Note>
+O pacote `@modelcontextprotocol/sdk` e uma dependencia **opcional**. Instale-o apenas se for usar MCP: `npm install @modelcontextprotocol/sdk`
+</Note>
+
+## Pre-requisitos
+
+```bash
+# Instale a dependencia opcional do MCP
+npm install @modelcontextprotocol/sdk
+```
+
+## Transports
+
+O SDK suporta tres tipos de transporte para conectar a servidores MCP:
+
+<Tabs>
+  <Tab title="stdio">
+    Executa o servidor como processo filho. Ideal para servidores locais:
+
+    ```typescript
+    await agent.connectMCP({
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/home/user/docs'],
+    });
+    ```
+  </Tab>
+
+  <Tab title="SSE (Server-Sent Events)">
+    Conecta a um servidor remoto via SSE:
+
+    ```typescript
+    await agent.connectMCP({
+      name: 'remote-tools',
+      transport: 'sse',
+      url: 'https://mcp.example.com/sse',
+    });
+    ```
+  </Tab>
+
+  <Tab title="HTTP">
+    Conecta via HTTP simples (request/response):
+
+    ```typescript
+    await agent.connectMCP({
+      name: 'api-tools',
+      transport: 'http',
+      url: 'https://mcp.example.com/api',
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## SSE com Autenticacao
+
+Para servidores que requerem autenticacao, passe headers:
+
+```typescript
+await agent.connectMCP({
+  name: 'github',
+  transport: 'sse',
+  url: 'https://mcp.github.com/sse',
+  headers: {
+    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+  },
+});
+```
+
+## Via Config (Auto-connect)
+
+Configure servidores MCP na criacao do agente para conexao automatica:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  mcp: [
+    {
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+    },
+    {
+      name: 'github',
+      transport: 'sse',
+      url: 'https://mcp.github.com/sse',
+      headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` },
+    },
+  ],
+});
+```
+
+## Como Funciona
+
+<Steps>
+  <Step title="Conexao">
+    O `MCPAdapter` conecta ao servidor usando o transporte configurado e faz o handshake do protocolo MCP.
+  </Step>
+  <Step title="Descoberta">
+    O adapter descobre todas as tools, prompts e resources expostas pelo servidor.
+  </Step>
+  <Step title="Registro">
+    Cada tool do servidor e convertida em uma `AgentTool` e registrada no `ToolExecutor`. Prompts sao registrados como skills.
+  </Step>
+  <Step title="Uso">
+    O agente usa as tools MCP normalmente via function calling, como se fossem tools nativas.
+  </Step>
+</Steps>
+
+## Nomenclatura de Tools
+
+Tools MCP sao nomeadas com o padrao `mcp__{serverName}__{toolName}` para evitar conflitos:
+
+```
+mcp__filesystem__read_file
+mcp__filesystem__write_file
+mcp__github__create_issue
+mcp__github__list_repos
+```
+
+## Opcoes de Configuracao
+
+| Opcao | Tipo | Default | Descricao |
+|-------|------|---------|-----------|
+| `name` | string | obrigatorio | Nome unico do servidor |
+| `transport` | string | obrigatorio | `'stdio'`, `'sse'`, `'http'` ou `'auto'` |
+| `command` | string | - | Comando para stdio |
+| `args` | string[] | - | Argumentos para stdio |
+| `url` | string | - | URL para SSE/HTTP |
+| `headers` | Record | - | Headers para SSE/HTTP |
+| `timeout` | number | 30000 | Timeout por operacao (ms) |
+| `maxRetries` | number | 3 | Tentativas de reconexao |
+| `healthCheckInterval` | number | 60000 | Intervalo de health check (ms) |
+| `isolateErrors` | boolean | true | Isolar erros do servidor |
+
+## Desconexao
+
+```typescript
+// Desconectar um servidor especifico
+await agent.disconnectMCP('filesystem');
+
+// Ao destruir o agente, todas as conexoes MCP sao fechadas automaticamente
+await agent.destroy();
+```
+
+## Monitoramento de Saude
+
+Verifique o status de saude de todas as conexoes MCP:
+
+```typescript
+const health = agent.getHealth();
+
+console.log(health);
+// {
+//   connections: {
+//     filesystem: { status: 'connected', lastHealthCheck: 1234567890 },
+//     github: { status: 'connected', lastHealthCheck: 1234567890 },
+//   }
+// }
+```
+
+O SDK faz health checks periodicos no intervalo configurado (`healthCheckInterval`). Se um servidor nao responde, o status muda para `'error'` e reconexao e tentada automaticamente.
+
+## Isolamento de Falhas
+
+Com `isolateErrors: true` (default), falhas em um servidor MCP nao afetam os outros:
+
+```typescript
+await agent.connectMCP({
+  name: 'unstable-server',
+  transport: 'sse',
+  url: 'https://unstable.example.com/sse',
+  isolateErrors: true,   // Erros neste servidor nao afetam o agente
+  maxRetries: 5,          // Tenta reconectar 5 vezes
+});
+```
+
+<Warning>
+Se `isolateErrors` for `false`, uma falha no servidor MCP pode causar erro na execucao do agente inteiro. Use `false` apenas para servidores criticos.
+</Warning>
+
+## Multiplos Servidores
+
+Conecte quantos servidores precisar. Cada um opera independentemente:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  mcp: [
+    {
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+    },
+    {
+      name: 'database',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-postgres', process.env.DATABASE_URL!],
+    },
+    {
+      name: 'slack',
+      transport: 'sse',
+      url: 'https://mcp-slack.example.com/sse',
+      headers: { Authorization: `Bearer ${process.env.SLACK_TOKEN}` },
+    },
+  ],
+});
+```
+
+## Prompts como Skills
+
+Prompts MCP sao automaticamente registrados como skills no `SkillManager`. Isso permite que o agente use prompts do servidor como comportamentos:
+
+```typescript
+// Servidor MCP expoe um prompt chamado "summarize"
+// O SDK registra automaticamente como skill
+
+// O modelo pode invocar o prompt via sistema de skills
+const response = await agent.chat('Use o prompt summarize para resumir este texto...');
+```
+
+## Resources
+
+Resources MCP sao conteudos estaticos ou dinamicos expostos pelo servidor. O `MCPAdapter` gerencia o acesso a resources e suas instrucoes sao injetadas no contexto do agente:
+
+```typescript
+// Instrucoes do servidor MCP sao injetadas automaticamente
+// no contexto com source 'mcp:{name}:instructions' e priority 5
+```
+
+<Info>
+Cada servidor MCP conectado pode fornecer instrucoes que sao injetadas no contexto do agente. Isso permite que servidores informem ao modelo como usar suas tools e resources corretamente.
+</Info>

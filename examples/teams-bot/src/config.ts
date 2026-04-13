@@ -23,8 +23,14 @@ export const config = {
     port: Number(process.env.PORT ?? 3978),
   },
   agent: {
-    apiKey: required('OPENROUTER_API_KEY'),
+    apiKey: required('LLM_API_KEY'),
+    baseUrl: process.env.LLM_BASE_URL,
     model: process.env.AGENT_MODEL ?? 'anthropic/claude-sonnet-4-20250514',
+  },
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY,
+    baseUrl: process.env.EMBEDDING_BASE_URL,
+    model: process.env.EMBEDDING_MODEL,
   },
   tavily: {
     apiKey: process.env.TAVILY_API_KEY,

@@ -1,0 +1,261 @@
+---
+title: "Inicio Rapido"
+description: "Instale o AgentX SDK e crie seu primeiro agente de IA em minutos"
+---
+
+# Inicio Rapido
+
+Este guia mostra como instalar o AgentX SDK, configurar um agente e fazer suas primeiras interacoes — desde um chat simples ate streaming com tools.
+
+## Pre-requisitos
+
+- **Node.js 22+** (necessario para `fetch()` nativo e `AbortSignal`)
+- **API key de um provedor LLM** compativel com OpenAI (OpenRouter, OpenAI, Groq, Azure, etc.)
+
+## Instalacao
+
+```bash
+npm install agentx-sdk
+```
+
+<Note>
+O SDK tem apenas 3 dependencias diretas: `zod`, `better-sqlite3` e `zod-to-json-schema`. O pacote `@modelcontextprotocol/sdk` e opcional (apenas se voce usar MCP).
+</Note>
+
+## Chat Simples
+
+O exemplo mais basico — envie uma mensagem e receba a resposta completa:
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  systemPrompt: 'Voce e um assistente prestativo que responde em portugues.',
+});
+
+const response = await agent.chat('O que e TypeScript?');
+console.log(response);
+
+await agent.destroy();
+```
+
+## Streaming
+
+O `stream()` e a API primaria do SDK. Ele retorna um `AsyncIterableIterator<AgentEvent>` que emite eventos em tempo real:
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+});
+
+for await (const event of agent.stream('Explique async/await em TypeScript')) {
+  switch (event.type) {
+    case 'text_delta':
+      process.stdout.write(event.content);
+      break;
+    case 'agent_end':
+      console.log(`\n\nTokens usados: ${event.usage.totalTokens}`);
+      break;
+  }
+}
+
+await agent.destroy();
+```
+
+## Chat com Tools
+
+Defina ferramentas que o agente pode usar. Os parametros sao validados com Zod:
+
+```typescript
+import { Agent } from 'agentx-sdk';
+import { z } from 'zod';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+});
+
+agent.addTool({
+  name: 'get_weather',
+  description: 'Retorna a previsao do tempo para uma cidade',
+  parameters: z.object({
+    city: z.string().describe('Nome da cidade'),
+  }),
+  execute: async (args) => {
+    const { city } = args as { city: string };
+    // Aqui voce chamaria uma API real de clima
+    return `Tempo em ${city}: 25°C, ensolarado`;
+  },
+});
+
+const response = await agent.chat('Como esta o tempo em Sao Paulo?');
+console.log(response);
+
+await agent.destroy();
+```
+
+## Multi-turn com Threads
+
+Use `threadId` para manter contexto entre mensagens. O historico e persistido automaticamente:
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+});
+
+// Primeira mensagem
+await agent.chat('Meu nome e Douglas', { threadId: 'conversa-1' });
+
+// Segunda mensagem — o agente lembra do nome
+const response = await agent.chat('Qual e meu nome?', { threadId: 'conversa-1' });
+console.log(response); // "Seu nome e Douglas"
+
+// Thread diferente — contexto isolado
+const response2 = await agent.chat('Qual e meu nome?', { threadId: 'conversa-2' });
+console.log(response2); // Nao sabe o nome
+
+await agent.destroy();
+```
+
+## Ciclo de Vida do Agente
+
+<Steps>
+  <Step title="Criar">
+    Use `Agent.create()` com a configuracao. O agente valida a config com Zod e inicializa todos os subsistemas.
+    ```typescript
+    const agent = Agent.create({
+      apiKey: process.env.LLM_API_KEY!,
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+    ```
+  </Step>
+  <Step title="Usar">
+    Interaja via `stream()` ou `chat()`. Adicione tools, skills e conecte servidores MCP conforme necessario.
+    ```typescript
+    const response = await agent.chat('Ola!');
+    ```
+  </Step>
+  <Step title="Destruir">
+    Sempre chame `destroy()` ao finalizar. Isso desconecta servidores MCP, fecha o banco SQLite e libera recursos.
+    ```typescript
+    await agent.destroy();
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+Sempre chame `agent.destroy()` quando terminar de usar o agente. Isso garante que conexoes MCP sejam fechadas e o banco de dados SQLite seja liberado corretamente.
+</Warning>
+
+## `stream()` vs `chat()`
+
+<Tabs>
+  <Tab title="stream()">
+    - API **primaria** do SDK
+    - Retorna `AsyncIterableIterator<AgentEvent>`
+    - Emite eventos em tempo real (text_delta, tool_call_start, etc.)
+    - Ideal para UIs que precisam de feedback instantaneo
+    - Permite cancelamento via `AbortSignal`
+
+    ```typescript
+    for await (const event of agent.stream('Ola')) {
+      if (event.type === 'text_delta') {
+        process.stdout.write(event.content);
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="chat()">
+    - Wrapper de **conveniencia** sobre `stream()`
+    - Retorna `Promise<string>` com a resposta completa
+    - Consome o stream internamente e concatena os text_delta
+    - Mais simples para scripts e testes
+    - Lanca erro se houver um erro irrecuperavel
+
+    ```typescript
+    const response = await agent.chat('Ola');
+    console.log(response);
+    ```
+  </Tab>
+</Tabs>
+
+## Exemplo Completo
+
+Um agente com tools, streaming e threads:
+
+```typescript
+import { Agent, builtinTools } from 'agentx-sdk';
+import { z } from 'zod';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  systemPrompt: 'Voce e um assistente de desenvolvimento que ajuda com codigo.',
+  logLevel: 'info',
+});
+
+// Adiciona tools builtin de arquivo
+for (const tool of builtinTools.fileOps()) {
+  agent.addTool(tool);
+}
+
+// Adiciona tool customizada
+agent.addTool({
+  name: 'run_tests',
+  description: 'Executa os testes do projeto',
+  parameters: z.object({
+    pattern: z.string().optional().describe('Padrao glob dos testes'),
+  }),
+  execute: async (args) => {
+    const { pattern } = args as { pattern?: string };
+    return `Testes executados: 42 passed, 0 failed${pattern ? ` (filtro: ${pattern})` : ''}`;
+  },
+});
+
+// Streaming com eventos
+for await (const event of agent.stream('Leia o package.json e me diga as dependencias', {
+  threadId: 'dev-session',
+})) {
+  switch (event.type) {
+    case 'text_delta':
+      process.stdout.write(event.content);
+      break;
+    case 'tool_call_start':
+      console.log(`\n[Tool: ${event.toolCall.function.name}]`);
+      break;
+    case 'tool_call_end':
+      console.log(`[Resultado: ${event.result.content.slice(0, 100)}...]`);
+      break;
+    case 'agent_end':
+      console.log(`\n\n--- Fim (${event.usage.totalTokens} tokens, ${event.duration}ms) ---`);
+      break;
+  }
+}
+
+await agent.destroy();
+```
+
+## Proximos Passos
+
+<CardGroup cols={2}>
+  <Card title="Configuracao" icon="gear" href="/pt/configuration">
+    Todas as opcoes de configuracao do agente.
+  </Card>
+  <Card title="Providers LLM" icon="server" href="/pt/llm-providers">
+    Configure OpenRouter, OpenAI, Azure e outros provedores.
+  </Card>
+  <Card title="Tools" icon="wrench" href="/pt/tools">
+    Guia completo de ferramentas e function calling.
+  </Card>
+  <Card title="Memoria e RAG" icon="brain" href="/pt/memory-knowledge">
+    Memoria persistente e busca por conhecimento.
+  </Card>
+</CardGroup>

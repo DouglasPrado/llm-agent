@@ -69,17 +69,12 @@ export { getModelContextWindow } from './utils/model-context.js';
 // LLM Client
 export { LLMClient } from './llm/llm-client.js';
 export type { LLMClientConfig } from './llm/llm-client.js';
-/** @deprecated Use LLMClient instead */
-export { LLMClient as OpenRouterClient } from './llm/llm-client.js';
-/** @deprecated Use LLMClientConfig instead */
-export type { LLMClientConfig as OpenRouterClientConfig } from './llm/llm-client.js';
 
 // LLM Message Types
 export type {
   LLMMessage, LLMToolCall, LLMContentPart,
   StreamChunk, ChatResponse, StreamChatParams, ChatParams,
   ToolDefinition, ResponseFormat,
-  OpenRouterMessage, OpenRouterToolCall, OpenRouterContentPart,
 } from './llm/message-types.js';
 
 // Utils

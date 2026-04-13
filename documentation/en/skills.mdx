@@ -1,0 +1,439 @@
+---
+title: "Skills"
+description: "Modular behaviors that adapt your agent"
+---
+
+Skills are modular behavior units that modify how your agent responds. They inject context-specific instructions, expose tools, and activate based on user input patterns or file paths.
+
+## Defining a Skill
+
+Every skill requires `name`, `description`, and `instructions`. Optional fields control matching, execution, and activation.
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+});
+
+agent.addSkill({
+  name: 'code-review',
+  description: 'Reviews code for quality and best practices',
+  instructions: `You are a senior code reviewer. Analyze the code for:
+- Correctness and edge cases
+- Performance bottlenecks
+- Naming and readability
+- Security vulnerabilities
+
+Provide actionable feedback with specific line references.`,
+  triggerPrefix: '/review',
+});
+```
+
+<ParamField path="name" type="string" required>
+  Unique identifier for the skill.
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Short description shown in skill listings and used for semantic matching.
+</ParamField>
+
+<ParamField path="instructions" type="string" required>
+  System-level instructions injected when the skill activates.
+</ParamField>
+
+<ParamField path="triggerPrefix" type="string">
+  Exact prefix that activates the skill (e.g., `"/review"`).
+</ParamField>
+
+## Matching
+
+Skills are matched against user input using a three-level hierarchy. Higher-level matches take precedence.
+
+### Level 1: Prefix Match (Score 1.0)
+
+The fastest and most reliable match. When the user message starts with `triggerPrefix`, the skill activates immediately.
+
+```typescript
+agent.addSkill({
+  name: 'translate',
+  description: 'Translates text between languages',
+  instructions: 'Translate the following text accurately.',
+  triggerPrefix: '/translate',
+});
+
+// Activated by: "/translate Hello world to Spanish"
+```
+
+### Level 2: Custom Match Function (Score 0.8)
+
+A predicate function for pattern-based activation when prefix matching is too rigid.
+
+```typescript
+agent.addSkill({
+  name: 'sql-helper',
+  description: 'Helps write and optimize SQL queries',
+  instructions: 'You are a SQL expert. Help write optimal queries.',
+  match: (input, context) => {
+    return /\b(SELECT|INSERT|UPDATE|DELETE|JOIN)\b/i.test(input);
+  },
+});
+```
+
+The `match` function receives the user input and a `SkillMatchContext` with `threadId` and `recentMessages`.
+
+### Level 3: Semantic Match (Score > 0.7)
+
+When no prefix or custom match fires, skills without explicit matchers are compared using cosine similarity on embeddings. A skill activates when the similarity score exceeds **0.7**.
+
+```typescript
+agent.addSkill({
+  name: 'debugging',
+  description: 'Helps debug runtime errors and exceptions',
+  instructions: 'Analyze the error and suggest fixes step by step.',
+  whenToUse: 'When the user shares an error message, stack trace, or describes unexpected behavior',
+});
+```
+
+<Note>
+  Semantic matching requires an embedding service to be configured. The `description` and `whenToUse` fields are combined to generate the skill embedding.
+</Note>
+
+## Priority and Exclusive
+
+When multiple skills match, `priority` and `exclusive` control which ones activate.
+
+```typescript
+agent.addSkill({
+  name: 'emergency-responder',
+  description: 'Handles critical production incidents',
+  instructions: 'Focus exclusively on diagnosing and resolving the incident.',
+  triggerPrefix: '/incident',
+  priority: 100,
+  exclusive: true,
+});
+
+agent.addSkill({
+  name: 'logger',
+  description: 'Adds structured logging suggestions',
+  instructions: 'Suggest appropriate log levels and structured fields.',
+  triggerPrefix: '/log',
+  priority: 10,
+});
+```
+
+<ParamField path="priority" type="number" default={0}>
+  Higher number means higher priority. Used to sort matches when multiple skills activate.
+</ParamField>
+
+<ParamField path="exclusive" type="boolean" default={false}>
+  When `true`, this skill blocks all other skills from activating simultaneously.
+</ParamField>
+
+<Warning>
+  A maximum of **3 active skills** are allowed per match cycle (configurable via `skills.maxActiveSkills`). Exclusive skills always count as the sole active skill.
+</Warning>
+
+## Skills with Tools
+
+Skills can bundle their own tools that only become available when the skill is active.
+
+```typescript
+import { z } from 'zod';
+
+agent.addSkill({
+  name: 'database-admin',
+  description: 'Database administration and query execution',
+  instructions: 'You have access to database tools. Use them to help the user.',
+  triggerPrefix: '/db',
+  tools: [
+    {
+      name: 'run_query',
+      description: 'Execute a read-only SQL query',
+      parameters: z.object({
+        sql: z.string().describe('The SQL query to execute'),
+        database: z.string().default('main'),
+      }),
+      isReadOnly: true,
+      execute: async (args) => {
+        // Execute query and return results
+        return JSON.stringify({ rows: [], rowCount: 0 });
+      },
+    },
+    {
+      name: 'list_tables',
+      description: 'List all tables in the database',
+      parameters: z.object({}),
+      isReadOnly: true,
+      execute: async () => {
+        return JSON.stringify(['users', 'orders', 'products']);
+      },
+    },
+  ],
+});
+```
+
+Skill tools are registered when the skill activates and unregistered when it deactivates. Use `allowedTools` to restrict which global tools the skill can access:
+
+```typescript
+agent.addSkill({
+  name: 'safe-reader',
+  description: 'Read-only file exploration',
+  instructions: 'Only read files, never modify them.',
+  allowedTools: ['read_file', 'list_directory', 'search_files'],
+});
+```
+
+## Arguments
+
+Skills support named arguments that are substituted into instructions at activation time.
+
+```typescript
+agent.addSkill({
+  name: 'scaffold',
+  description: 'Scaffold a new component',
+  instructions: `Create a new $type component named $name.
+Follow the project conventions and include tests.
+Additional requirements: $ARGS`,
+  triggerPrefix: '/scaffold',
+  argNames: ['type', 'name'],
+});
+
+// User types: /scaffold component UserProfile --with-tests
+// $type   = "component"
+// $name   = "UserProfile"
+// $ARGS   = "--with-tests"
+```
+
+<ParamField path="argNames" type="string[]">
+  Positional argument names. Each `$argName` in instructions is replaced with the corresponding token from user input.
+</ParamField>
+
+The special placeholder `$ARGS` captures all remaining arguments after the named ones have been consumed.
+
+## Dynamic Prompt
+
+For skills that need runtime context, use `getPrompt` to generate instructions dynamically.
+
+```typescript
+agent.addSkill({
+  name: 'context-aware-review',
+  description: 'Code review with project context',
+  triggerPrefix: '/review',
+  instructions: '', // Overridden by getPrompt
+  getPrompt: async (args, ctx) => {
+    const config = await loadProjectConfig(ctx.skillDir!);
+    return `Review the code following these project rules:
+${config.rules.join('\n')}
+
+Thread: ${ctx.threadId}
+Trace: ${ctx.traceId}
+Files to review: ${args}`;
+  },
+});
+```
+
+<ParamField path="getPrompt" type="(args: string, context: SkillPromptContext) => Promise<string> | string">
+  When provided, overrides static `instructions`. Receives the raw argument string and a context object with `threadId`, `traceId`, and `skillDir`.
+</ParamField>
+
+## SKILL.md Files
+
+Define skills as Markdown files with YAML frontmatter. This is the preferred approach for managing skills declaratively.
+
+```markdown
+---
+name: code-review
+description: Reviews code for quality and best practices
+whenToUse: When the user asks for code review or shares code for feedback
+triggerPrefix: /review
+aliases: [/cr, /check]
+argNames: [file]
+allowedTools: [read_file, search_files]
+model: anthropic/claude-sonnet-4-20250514
+context: inline
+paths: ["**/*.ts", "**/*.js"]
+effort: 8
+exclusive: false
+priority: 50
+modelInvocable: true
+---
+
+You are a senior code reviewer. Analyze $file for:
+
+- Correctness and edge cases
+- Performance bottlenecks
+- Naming and readability
+- Security vulnerabilities
+
+Provide actionable feedback with specific line references.
+```
+
+### Frontmatter Reference
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Skill identifier (falls back to directory name) |
+| `description` | `string` | Short description for listings and semantic matching |
+| `whenToUse` | `string` | Detailed usage scenarios for model discovery |
+| `triggerPrefix` | `string` | Exact prefix trigger (e.g., `/review`) |
+| `aliases` | `string[]` | Alternative slash commands |
+| `argNames` | `string[]` | Named argument placeholders |
+| `allowedTools` | `string[]` | Allowlist of global tools |
+| `model` | `string` | Override model for this skill |
+| `context` | `"inline"` | Execution mode |
+| `paths` | `string[]` | Glob patterns for conditional activation |
+| `effort` | `number` | Computational effort hint (1-10) |
+| `exclusive` | `boolean` | Block other skills when active |
+| `priority` | `number` | Sort order for multiple matches |
+| `modelInvocable` | `boolean` | Whether the model can invoke proactively |
+
+### Directory Layouts
+
+<CodeGroup>
+
+```text Subdirectory (preferred)
+skills/
+  code-review/
+    SKILL.md
+  translate/
+    SKILL.md
+```
+
+```text Flat
+skills/
+  code-review.md
+  translate.md
+```
+
+</CodeGroup>
+
+## Loading Skills from Directories
+
+Load skill files at agent creation time or dynamically at runtime.
+
+<CodeGroup>
+
+```typescript Via Config
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  skills: {
+    skillsDir: './skills',
+    maxActiveSkills: 3,
+    modelDiscovery: true,
+  },
+});
+```
+
+```typescript At Runtime
+const count = await agent.loadSkillsDir('./skills');
+console.log(`Loaded ${count} skills`);
+```
+
+</CodeGroup>
+
+## Conditional Activation
+
+Skills with `paths` globs remain dormant until matching files are touched.
+
+```typescript
+agent.addSkill({
+  name: 'test-helper',
+  description: 'Helps write and fix tests',
+  instructions: 'You are a testing expert. Help write comprehensive tests.',
+  paths: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**'],
+});
+
+// Activate when the user works with test files
+const activated = agent.activateSkillsForPaths([
+  'src/utils/__tests__/parser.test.ts',
+]);
+console.log('Activated skills:', activated);
+// => ['test-helper']
+```
+
+Once activated via path matching, the skill remains available for the rest of the session.
+
+## Model Discovery
+
+The `whenToUse` field enables the model to proactively invoke skills without explicit slash commands.
+
+```typescript
+agent.addSkill({
+  name: 'refactor',
+  description: 'Refactors code for improved structure',
+  instructions: 'Analyze the code structure and suggest refactoring improvements.',
+  whenToUse: 'When the user shares code that has duplication, long functions, or poor separation of concerns',
+  modelInvocable: true, // default
+});
+```
+
+Set `modelInvocable: false` to hide the skill from model discovery:
+
+```typescript
+agent.addSkill({
+  name: 'admin-reset',
+  description: 'Resets user data (admin only)',
+  instructions: 'Reset the specified user account.',
+  triggerPrefix: '/admin-reset',
+  modelInvocable: false, // Only via explicit slash command
+});
+```
+
+<Info>
+  Model discovery uses a character-budget system to inject skill listings into the model context. Skills with `whenToUse` provide richer signals for the model to decide when to activate them.
+</Info>
+
+## API Reference
+
+### agent.addSkill(skill)
+
+Register a new skill programmatically.
+
+```typescript
+agent.addSkill({
+  name: 'summarize',
+  description: 'Summarizes long text',
+  instructions: 'Provide a concise summary of the given text.',
+  triggerPrefix: '/summarize',
+});
+```
+
+### agent.removeSkill(name)
+
+Unregister a skill by name. Returns `true` if the skill was found and removed.
+
+```typescript
+const removed = agent.removeSkill('summarize');
+```
+
+### agent.listSkills()
+
+Returns all registered skills (unconditional and activated conditional).
+
+```typescript
+const skills = agent.listSkills();
+for (const skill of skills) {
+  console.log(`${skill.name}: ${skill.description}`);
+}
+```
+
+### agent.loadSkillsDir(dir)
+
+Load skills from a directory of SKILL.md files. Returns the number of skills loaded.
+
+```typescript
+const count = await agent.loadSkillsDir('./my-skills');
+```
+
+### agent.activateSkillsForPaths(filePaths)
+
+Activate conditional skills whose `paths` globs match the given file paths. Returns the names of newly activated skills.
+
+```typescript
+const activated = agent.activateSkillsForPaths([
+  'src/components/Button.tsx',
+  'src/styles/button.css',
+]);
+```

@@ -1,0 +1,668 @@
+---
+title: "API Reference"
+description: "Complete type reference for the AgentX SDK"
+---
+
+# API Reference
+
+Complete TypeScript type definitions for the AgentX SDK.
+
+---
+
+## Agent
+
+The main entry point. `Agent` orchestrates LLM conversations, tool execution, memory, knowledge retrieval, and skills.
+
+```typescript
+class Agent {
+  /** Create a new Agent instance */
+  static create(config: AgentConfig): Agent;
+
+  /** Stream a conversation, yielding AgentEvent objects */
+  stream(input: string, options?: ChatOptions): AsyncIterableIterator<AgentEvent>;
+
+  /** Send a message and get the full response (consumes stream() internally) */
+  chat(input: string, options?: ChatOptions): Promise<ChatResponse>;
+
+  /** Register a tool */
+  addTool(tool: AgentTool): void;
+
+  /** Unregister a tool by name */
+  removeTool(name: string): void;
+
+  /** Register a skill */
+  addSkill(skill: AgentSkill): void;
+
+  /** Unregister a skill by name */
+  removeSkill(name: string): void;
+
+  /** List all registered skills */
+  listSkills(): AgentSkill[];
+
+  /** Load skills from a directory */
+  loadSkillsDir(dirPath: string): Promise<void>;
+
+  /** Activate skills whose paths match the given file paths */
+  activateSkillsForPaths(paths: string[]): void;
+
+  /** Get conversation history for a thread */
+  getHistory(threadId: string): Promise<ChatMessage[]>;
+
+  /** Connect to an MCP server */
+  connectMCP(config: MCPConnectionConfig): Promise<void>;
+
+  /** Disconnect from an MCP server */
+  disconnectMCP(serverId: string): Promise<void>;
+
+  /** Get health status of all subsystems */
+  getHealth(): Promise<Record<string, MCPHealthStatus>>;
+
+  /** Store a memory manually */
+  remember(content: string, threadId?: string): Promise<void>;
+
+  /** Recall memories relevant to a query */
+  recall(query: string, topK?: number): Promise<Memory[]>;
+
+  /** Ingest a document into the knowledge base */
+  ingestKnowledge(doc: KnowledgeDocument): Promise<void>;
+
+  /** Get cumulative token usage */
+  getUsage(): TokenUsage;
+
+  /** Tear down the agent, closing all connections and stores */
+  destroy(): Promise<void>;
+}
+```
+
+---
+
+## ChatOptions
+
+Options passed to `stream()` and `chat()`.
+
+```typescript
+interface ChatOptions {
+  /** Conversation thread identifier. Defaults to a new UUID. */
+  threadId?: string;
+
+  /** Override the model for this call */
+  model?: string;
+
+  /** Sampling temperature (0.0 - 2.0) */
+  temperature?: number;
+
+  /** AbortSignal to cancel the stream */
+  signal?: AbortSignal;
+}
+```
+
+---
+
+## AgentTool
+
+Definition for a tool that the agent can invoke.
+
+```typescript
+interface AgentTool {
+  /** Unique tool name (snake_case recommended) */
+  name: string;
+
+  /** Human-readable description shown to the LLM */
+  description: string;
+
+  /** Zod schema defining the tool's input parameters */
+  parameters: ZodSchema;
+
+  /** Execute the tool with validated arguments */
+  execute(args: unknown): Promise<AgentToolResult>;
+
+  /** Optional custom validation before execution */
+  validate?(args: unknown): Promise<boolean>;
+
+  /** Whether this tool is safe for concurrent execution */
+  isConcurrencySafe?: boolean;
+
+  /** Whether this tool only reads data (no side effects) */
+  isReadOnly?: boolean;
+
+  /** Whether this tool performs destructive operations */
+  isDestructive?: boolean;
+
+  /** Execution timeout in milliseconds */
+  timeoutMs?: number;
+
+  /** Number of retry attempts on failure */
+  maxRetries?: number;
+}
+```
+
+### AgentToolResult
+
+```typescript
+interface AgentToolResult {
+  /** The result content returned to the LLM */
+  content: string;
+
+  /** Optional structured metadata */
+  metadata?: Record<string, unknown>;
+
+  /** Whether the tool execution resulted in an error */
+  isError?: boolean;
+}
+```
+
+---
+
+## AgentSkill
+
+A skill bundles instructions, tools, and matching logic into a reusable capability.
+
+```typescript
+interface AgentSkill {
+  /** Unique skill name */
+  name: string;
+
+  /** Human-readable description */
+  description: string;
+
+  /** System instructions injected when the skill is active */
+  instructions: string;
+
+  /** Tools provided by this skill */
+  tools?: AgentTool[];
+
+  /** Custom match function for activation */
+  match?(input: string): boolean;
+
+  /** Prefix that triggers the skill (e.g. "/translate") */
+  triggerPrefix?: string;
+
+  /** Alternative trigger names */
+  aliases?: string[];
+
+  /** Named arguments extracted from input */
+  argNames?: string[];
+
+  /** Dynamic prompt generator */
+  getPrompt?(args: Record<string, string>): string;
+
+  /** Description of when to use this skill (shown to LLM) */
+  whenToUse?: string;
+
+  /** Priority for conflict resolution (higher wins) */
+  priority?: number;
+
+  /** Whether this skill is exclusive (disables others when active) */
+  exclusive?: boolean;
+
+  /** File path patterns that auto-activate this skill */
+  paths?: string[];
+
+  /** Override model when this skill is active */
+  model?: string;
+
+  /** Additional context injected with the skill */
+  context?: string;
+
+  /** Effort level hint for the LLM */
+  effort?: "low" | "medium" | "high";
+
+  /** Whether the LLM can invoke this skill autonomously */
+  modelInvocable?: boolean;
+}
+```
+
+---
+
+## AgentEvent
+
+A discriminated union of all event types emitted during streaming. Use the `type` field to narrow the type.
+
+```typescript
+type AgentEvent =
+  | { type: "agent_start"; traceId: string; threadId: string; model: string }
+  | { type: "text_delta"; content: string }
+  | { type: "text_done"; content: string }
+  | { type: "tool_call_start"; toolCall: ToolCall }
+  | { type: "tool_call_delta"; toolCallId: string; argumentsDelta: string }
+  | { type: "tool_call_end"; toolCallId: string; result: unknown; duration: number }
+  | { type: "memory_extracted"; memoryId: string; content: string }
+  | { type: "knowledge_retrieved"; chunks: RetrievedKnowledge[]; topScore: number }
+  | { type: "skill_activated"; skillName: string }
+  | { type: "turn_start"; iteration: number }
+  | { type: "turn_end"; iteration: number; hasToolCalls: boolean }
+  | { type: "error"; error: Error | string; recoverable: boolean }
+  | { type: "warning"; message: string; code: string }
+  | { type: "compaction"; tokensFreed: number }
+  | { type: "recovery"; reason: string; action: string }
+  | { type: "model_fallback"; from: string; to: string; reason: string }
+  | { type: "agent_end"; traceId: string; usage: TokenUsage; reason: string; duration: number };
+```
+
+---
+
+## Data Types
+
+### ChatMessage
+
+```typescript
+interface ChatMessage {
+  /** Message role */
+  role: MessageRole;
+
+  /** Text content or multimodal content parts */
+  content: string | ContentPart[];
+
+  /** Tool calls made by the assistant */
+  toolCalls?: ToolCall[];
+
+  /** ID of the tool call this message responds to */
+  toolCallId?: string;
+
+  /** Whether this message is pinned (always included in context) */
+  pinned?: boolean;
+
+  /** Timestamp of message creation */
+  createdAt: Date;
+}
+```
+
+### ContentPart
+
+```typescript
+type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } };
+```
+
+### ToolCall
+
+```typescript
+interface ToolCall {
+  /** Unique tool call identifier */
+  id: string;
+
+  /** Always "function" */
+  type: "function";
+
+  /** Function name and serialized arguments */
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+```
+
+### TokenUsage
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+```
+
+### KnowledgeDocument
+
+```typescript
+interface KnowledgeDocument {
+  /** Raw document content */
+  content: string;
+
+  /** Document metadata (source, title, etc.) */
+  metadata?: Record<string, unknown>;
+}
+```
+
+### KnowledgeChunk
+
+```typescript
+interface KnowledgeChunk {
+  /** Unique chunk identifier */
+  id: string;
+
+  /** Chunk text content */
+  content: string;
+
+  /** Vector embedding */
+  embedding: number[];
+
+  /** Inherited and chunk-specific metadata */
+  metadata?: Record<string, unknown>;
+
+  /** Timestamp of chunk creation */
+  createdAt: Date;
+}
+```
+
+### RetrievedKnowledge
+
+```typescript
+interface RetrievedKnowledge {
+  /** Chunk identifier */
+  id: string;
+
+  /** Chunk text content */
+  content: string;
+
+  /** Similarity score (0.0 - 1.0) */
+  score: number;
+
+  /** Chunk metadata */
+  metadata?: Record<string, unknown>;
+}
+```
+
+---
+
+## Store Interfaces
+
+### VectorStore
+
+```typescript
+interface VectorStore {
+  upsert(chunk: KnowledgeChunk): Promise<void>;
+  search(embedding: number[], topK: number): Promise<RetrievedKnowledge[]>;
+  delete(id: string): Promise<void>;
+  listAll(): Promise<KnowledgeChunk[]>;
+  deleteBySource(source: string): Promise<void>;
+}
+```
+
+### ConversationStore
+
+```typescript
+interface ConversationStore {
+  appendMessage(threadId: string, message: ChatMessage): Promise<void>;
+  listThread(threadId: string): Promise<ChatMessage[]>;
+  listPinned(threadId: string): Promise<ChatMessage[]>;
+  clearThread(threadId: string): Promise<void>;
+}
+```
+
+---
+
+## MCP Types
+
+### MCPConnectionConfig
+
+```typescript
+interface MCPConnectionConfig {
+  /** Unique server identifier */
+  serverId: string;
+
+  /** Transport type */
+  transport: "stdio" | "sse";
+
+  /** Command to launch the MCP server (stdio transport) */
+  command?: string;
+
+  /** Command arguments (stdio transport) */
+  args?: string[];
+
+  /** SSE endpoint URL (sse transport) */
+  url?: string;
+
+  /** Environment variables passed to the server process */
+  env?: Record<string, string>;
+}
+```
+
+### MCPHealthStatus
+
+```typescript
+interface MCPHealthStatus {
+  /** Whether the MCP server is connected */
+  connected: boolean;
+
+  /** Number of tools registered from this server */
+  toolCount: number;
+
+  /** Last successful ping timestamp */
+  lastPing?: Date;
+
+  /** Error message if unhealthy */
+  error?: string;
+}
+```
+
+---
+
+## LLM Types
+
+### LLMClient
+
+The internal client used to communicate with LLM providers via OpenRouter or compatible APIs.
+
+```typescript
+interface LLMClient {
+  /** Send a streaming chat request */
+  streamChat(params: StreamChatParams): AsyncIterableIterator<StreamChunk>;
+
+  /** Send a non-streaming chat request */
+  chat(params: StreamChatParams): Promise<ChatResponse>;
+}
+```
+
+### LLMClientConfig
+
+```typescript
+interface LLMClientConfig {
+  /** API key for the LLM provider */
+  apiKey: string;
+
+  /** Base URL override */
+  baseUrl?: string;
+
+  /** Default model identifier */
+  model: string;
+
+  /** Request timeout in milliseconds */
+  timeoutMs?: number;
+}
+```
+
+### LLMMessage
+
+```typescript
+interface LLMMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | LLMContentPart[];
+  toolCalls?: LLMToolCall[];
+  toolCallId?: string;
+}
+```
+
+### LLMToolCall
+
+```typescript
+interface LLMToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+```
+
+### LLMContentPart
+
+```typescript
+type LLMContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+```
+
+### StreamChunk
+
+```typescript
+interface StreamChunk {
+  /** Text content delta */
+  content?: string;
+
+  /** Tool call deltas */
+  toolCalls?: LLMToolCall[];
+
+  /** Finish reason if this is the final chunk */
+  finishReason?: "stop" | "tool_calls" | "length" | "content_filter";
+
+  /** Token usage (present in final chunk) */
+  usage?: TokenUsage;
+}
+```
+
+### ChatResponse
+
+```typescript
+interface ChatResponse {
+  /** Full response content */
+  content: string;
+
+  /** Tool calls requested by the model */
+  toolCalls?: ToolCall[];
+
+  /** Token usage statistics */
+  usage: TokenUsage;
+
+  /** Why the model stopped generating */
+  finishReason: string;
+}
+```
+
+### StreamChatParams
+
+```typescript
+interface StreamChatParams {
+  model: string;
+  messages: LLMMessage[];
+  tools?: ToolDefinition[];
+  temperature?: number;
+  maxTokens?: number;
+  responseFormat?: ResponseFormat;
+  signal?: AbortSignal;
+}
+```
+
+### ToolDefinition
+
+```typescript
+interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>; // JSON Schema
+  };
+}
+```
+
+### ResponseFormat
+
+```typescript
+interface ResponseFormat {
+  type: ResponseFormatType;
+  jsonSchema?: Record<string, unknown>;
+}
+```
+
+---
+
+## Utility Exports
+
+The SDK exports several utility functions and classes.
+
+```typescript
+/** Create a structured logger */
+function createLogger(options?: { level?: LogLevel; prefix?: string }): Logger;
+
+/** Logger interface */
+interface Logger {
+  debug(message: string, meta?: Record<string, unknown>): void;
+  info(message: string, meta?: Record<string, unknown>): void;
+  warn(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, meta?: Record<string, unknown>): void;
+}
+
+/** LRU cache with TTL support */
+class LRUCache<K, V> {
+  constructor(options: { maxSize: number; ttlMs?: number });
+  get(key: K): V | undefined;
+  set(key: K, value: V): void;
+  delete(key: K): boolean;
+  clear(): void;
+  get size(): number;
+}
+
+/** Retry a function with exponential backoff */
+function retry<T>(fn: () => Promise<T>, options?: RetryOptions): Promise<T>;
+
+interface RetryOptions {
+  maxRetries?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  retryIf?: (error: unknown) => boolean;
+}
+
+/** Estimate token count for a string */
+function estimateTokens(text: string): number;
+
+/** Normalize messages for LLM API consumption */
+function normalizeMessagesForAPI(messages: ChatMessage[]): LLMMessage[];
+
+/** Cache for assembled prompt sections */
+class PromptSectionCache {
+  get(key: string): string | undefined;
+  set(key: string, value: string): void;
+  invalidate(key: string): void;
+  clear(): void;
+}
+
+/** Analyze conversation context for relevance signals */
+function analyzeContext(messages: ChatMessage[]): ContextAnalysis;
+
+/** Get the context window size for a model */
+function getModelContextWindow(model: string): number;
+```
+
+---
+
+## Enums
+
+```typescript
+enum MessageRole {
+  System = "system",
+  User = "user",
+  Assistant = "assistant",
+  Tool = "tool",
+}
+
+enum OnToolError {
+  /** Stop execution on tool error */
+  Throw = "throw",
+  /** Continue execution, passing error to LLM */
+  Continue = "continue",
+}
+
+enum OnLimitReached {
+  /** Stop execution when limit is reached */
+  Stop = "stop",
+  /** Throw an error when limit is reached */
+  Throw = "throw",
+}
+
+enum LogLevel {
+  Debug = "debug",
+  Info = "info",
+  Warn = "warn",
+  Error = "error",
+  Silent = "silent",
+}
+
+enum ResponseFormatType {
+  Text = "text",
+  JsonObject = "json_object",
+  JsonSchema = "json_schema",
+}
+```

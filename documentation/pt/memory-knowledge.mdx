@@ -1,0 +1,279 @@
+---
+title: "Memoria e Knowledge (RAG)"
+description: "Memoria persistente baseada em arquivos e busca por conhecimento com RAG no AgentX SDK"
+---
+
+# Memoria e Knowledge (RAG)
+
+O AgentX SDK possui dois subsistemas complementares para dar ao agente acesso a informacao alem do contexto imediato:
+
+- **Memoria** — fatos extraidos de conversas, persistidos como arquivos Markdown
+- **Knowledge (RAG)** — documentos ingeridos, chunked e buscados por similaridade
+
+## Memoria
+
+O sistema de memoria e baseado em arquivos Markdown com frontmatter. Memorias capturam informacoes **nao derivaveis** do estado atual do projeto — preferencias do usuario, feedback, decisoes, referencias.
+
+### Tipos de Memoria
+
+| Tipo | Descricao | Exemplo |
+|------|-----------|---------|
+| `user` | Preferencias e informacoes do usuario | "Prefere TypeScript, usa VS Code" |
+| `feedback` | Feedback sobre o comportamento do agente | "Nao gostou de respostas longas" |
+| `project` | Decisoes e contexto do projeto | "Usa PostgreSQL em producao" |
+| `reference` | Informacoes de referencia | "API key da Tavily: usar env var" |
+
+<Warning>
+Memorias **nao devem** salvar informacoes derivaveis do codigo (padroes, arquitetura, historico git). Essas informacoes podem ser obtidas via tools como grep e bash.
+</Warning>
+
+### Salvando Memorias
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  memory: { enabled: true, memoryDir: '~/.agent/memory/' },
+});
+
+// Salvar memoria manualmente
+const filename = await agent.remember(
+  'O usuario prefere respostas concisas e em portugues.',
+  'user',          // tipo: 'user' | 'feedback' | 'project' | 'reference'
+  'thread-1',      // threadId (opcional)
+);
+
+console.log(`Memoria salva: ${filename}`);
+```
+
+### Recuperando Memorias
+
+```typescript
+// Buscar memorias relevantes para uma query
+const memories = await agent.recall('preferencias do usuario');
+
+for (const memory of memories) {
+  console.log(`[${memory.type}] ${memory.name}: ${memory.content}`);
+}
+```
+
+### Extracao Automatica
+
+O SDK pode extrair memorias automaticamente das conversas. Isso e controlado pela configuracao:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  memory: {
+    enabled: true,
+
+    // Habilita extracao automatica (default: true)
+    extractionEnabled: true,
+
+    // Taxa de amostragem: 0.3 = 30% das conversas sao analisadas (default: 0.3)
+    samplingRate: 0.3,
+
+    // Intervalo minimo entre extracoes em turnos (default: 10)
+    extractionInterval: 10,
+  },
+});
+```
+
+O fluxo de extracao automatica:
+
+<Steps>
+  <Step title="Trigger">
+    Apos cada turno do assistente, o SDK avalia se deve extrair memorias baseado no `samplingRate` e `extractionInterval`.
+  </Step>
+  <Step title="Analise">
+    As ultimas mensagens do historico sao enviadas a um agente "fork" que analisa o conteudo e identifica fatos relevantes.
+  </Step>
+  <Step title="Persistencia">
+    Memorias extraidas sao salvas como arquivos Markdown no diretorio configurado. Um arquivo `MEMORY.md` serve como indice.
+  </Step>
+  <Step title="Injecao">
+    Nas proximas interacoes, memorias relevantes sao automaticamente incluidas no contexto usando busca por relevancia via LLM.
+  </Step>
+</Steps>
+
+### Ciclo de Vida da Memoria
+
+Memorias sao arquivos Markdown com frontmatter:
+
+```markdown
+---
+name: preferencia-idioma
+description: Usuario prefere respostas em portugues
+type: user
+---
+
+O usuario indicou que prefere receber respostas em portugues brasileiro.
+Tambem prefere respostas concisas e diretas.
+```
+
+- **Criacao**: via `agent.remember()` ou extracao automatica
+- **Leitura**: via `agent.recall()` ou injecao automatica no contexto
+- **Indice**: o arquivo `MEMORY.md` e mantido automaticamente com headers de todas as memorias
+- **Limite**: maximo de 200 arquivos de memoria por default (`maxMemoryFiles`)
+- **Freshness**: memorias mais recentes recebem prioridade no contexto
+
+### Configuracao de Memoria
+
+```typescript
+memory: {
+  enabled: true,                    // Habilitar sistema (default: true)
+  memoryDir: '~/.agent/memory/',   // Diretorio dos arquivos (default: '~/.agent/memory/')
+  relevanceModel: undefined,        // Modelo para avaliacao de relevancia (usa principal)
+  maxMemoryFiles: 200,             // Limite de arquivos (default: 200)
+  extractionEnabled: true,         // Extracao automatica (default: true)
+  samplingRate: 0.3,               // Taxa de amostragem (default: 0.3)
+  extractionInterval: 10,          // Intervalo em turnos (default: 10)
+}
+```
+
+---
+
+## Knowledge (RAG)
+
+O subsistema de knowledge permite ingerir documentos, gerar embeddings e buscar informacoes relevantes automaticamente durante o chat.
+
+### Ingestao de Documentos
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  knowledge: {
+    enabled: true,
+    chunkSize: 512,
+    chunkOverlap: 64,
+    topK: 5,
+    minScore: 0.3,
+  },
+  // Embeddings via OpenAI (recomendado para producao)
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+  },
+});
+
+// Ingerir documento
+await agent.ingestKnowledge({
+  content: 'Conteudo completo do documento aqui...',
+  metadata: {
+    source: 'manual-produto.pdf',
+    category: 'documentacao',
+  },
+});
+```
+
+### Fluxo de Ingestao
+
+<Steps>
+  <Step title="Chunking">
+    O documento e dividido em chunks de tamanho configuravel (`chunkSize`) com overlap (`chunkOverlap`) para preservar contexto entre chunks.
+  </Step>
+  <Step title="Embedding">
+    Cada chunk e convertido em um vetor de embedding usando o modelo configurado (default: `text-embedding-3-small`).
+  </Step>
+  <Step title="Storage">
+    Os chunks com seus embeddings sao salvos no `VectorStore` (default: SQLite com tabela de vetores).
+  </Step>
+</Steps>
+
+### Busca Manual
+
+```typescript
+// Buscar conhecimento relevante
+const results = await agent.searchKnowledge('como configurar o produto X?');
+
+for (const result of results) {
+  console.log(`Score: ${result.score.toFixed(3)}`);
+  console.log(`Conteudo: ${result.content}`);
+  console.log(`Metadata:`, result.metadata);
+}
+```
+
+### Injecao Automatica no Chat
+
+Quando o subsistema de knowledge esta habilitado, o SDK automaticamente:
+
+1. Recebe a mensagem do usuario
+2. Gera embedding da mensagem
+3. Busca chunks relevantes no VectorStore
+4. Injeta os resultados no contexto com prioridade 6
+
+```typescript
+// O knowledge e injetado automaticamente — basta fazer chat normalmente
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  knowledge: { enabled: true },
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+  },
+});
+
+// Ingira seus documentos
+await agent.ingestKnowledge({ content: '...' });
+
+// O agente automaticamente busca knowledge relevante
+const response = await agent.chat('Como funciona o recurso X?');
+```
+
+### Configuracao de Knowledge
+
+```typescript
+knowledge: {
+  enabled: true,        // Habilitar RAG (default: true)
+  store: undefined,     // VectorStore customizado (default: SQLiteVectorStore)
+  chunkSize: 512,       // Tokens por chunk (default: 512)
+  chunkOverlap: 64,     // Overlap entre chunks (default: 64)
+  topK: 5,              // Resultados por busca (default: 5)
+  minScore: 0.3,        // Score minimo de similaridade (default: 0.3)
+}
+```
+
+## Desabilitando Subsistemas
+
+Voce pode desabilitar memoria, knowledge ou ambos:
+
+```typescript
+// Sem memoria, sem knowledge
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  memory: { enabled: false },
+  knowledge: { enabled: false },
+});
+
+// Com memoria, sem knowledge
+const agent2 = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  memory: { enabled: true },
+  knowledge: { enabled: false },
+});
+```
+
+## Prioridade no Context Pipeline
+
+Os subsistemas injetam conteudo no contexto com prioridades diferentes. Quanto **maior** o numero, **mais alta** a prioridade:
+
+| Source | Prioridade | Descricao |
+|--------|-----------|-----------|
+| `environment` | 1 | Informacoes de ambiente (modelo, data, plataforma) |
+| `memory:instructions` | 2 | Instrucoes comportamentais de memoria |
+| `memory:index` | 3 | Indice MEMORY.md |
+| `memory:relevant` | 4 | Memorias relevantes selecionadas |
+| `mcp:instructions` | 5 | Instrucoes de servidores MCP |
+| `knowledge` | 6 | Chunks de RAG relevantes |
+| `skill:*` | 8 | Skills ativadas |
+| `skill:listing` | 9 | Lista de skills disponiveis |
+| `tools` | 10 | Descricao de tools disponiveis |
+
+<Note>
+Quando o contexto excede `maxContextTokens`, itens de menor prioridade sao removidos primeiro. Memorias relevantes e knowledge sao preservados enquanto possivel.
+</Note>

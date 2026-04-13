@@ -1,0 +1,153 @@
+---
+title: "Getting Started"
+description: "Install and create your first agent in minutes"
+---
+
+# Getting Started
+
+## Installation
+
+```bash
+npm install agentx-sdk
+```
+
+### Requirements
+
+- **Node.js 22+** — required for native `fetch()`, `AbortSignal`, and dynamic import support
+- **LLM API Key** — any OpenAI-compatible provider (OpenRouter, OpenAI, Azure, local models, etc.)
+
+### Optional
+
+```bash
+npm install @modelcontextprotocol/sdk
+```
+
+Install the MCP SDK only if you need to connect to external tool servers via the Model Context Protocol.
+
+<Warning>
+  The SDK requires Node.js 22 or later. Earlier versions do not have the native `fetch()` API that AgentX depends on.
+</Warning>
+
+## Quick Start
+
+<Steps>
+  <Step title="Simple Chat">
+    Create an agent and send a message. The `chat()` method returns the full text response.
+
+    ```typescript
+    import { Agent } from 'agentx-sdk';
+
+    const agent = Agent.create({ apiKey: process.env.LLM_API_KEY! });
+
+    const response = await agent.chat('What is TypeScript?');
+    console.log(response);
+
+    await agent.destroy();
+    ```
+  </Step>
+
+  <Step title="Streaming">
+    Use `stream()` for real-time token-by-token output. Each event has a `type` field you can switch on.
+
+    ```typescript
+    for await (const event of agent.stream('Explain recursion')) {
+      switch (event.type) {
+        case 'text_delta':
+          process.stdout.write(event.content);
+          break;
+        case 'agent_end':
+          console.log(`\nTokens: ${event.usage.totalTokens}`);
+          break;
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="With Tools">
+    Register tools using Zod schemas for parameter validation. The agent will call them automatically when relevant.
+
+    ```typescript
+    import { z } from 'zod';
+
+    agent.addTool({
+      name: 'get_weather',
+      description: 'Get weather for a city',
+      parameters: z.object({ city: z.string() }),
+      execute: async ({ city }) => `22C and sunny in ${city}`,
+    });
+
+    await agent.chat('Weather in Tokyo?');
+    ```
+  </Step>
+
+  <Step title="Threads (Isolation)">
+    Use `threadId` to maintain separate conversation contexts. Each thread has its own history.
+
+    ```typescript
+    await agent.chat('My name is Alice', { threadId: 'thread-1' });
+
+    // Same thread — remembers context
+    await agent.chat('What is my name?', { threadId: 'thread-1' });
+    // => "Your name is Alice"
+
+    // Different thread — isolated context
+    await agent.chat('What is my name?', { threadId: 'thread-2' });
+    // => "I don't know your name"
+    ```
+  </Step>
+</Steps>
+
+## Core Concepts
+
+<CardGroup cols={2}>
+  <Card title="Agent">
+    The single entry point. `Agent.create()` instantiates and orchestrates all subsystems: LLM client, tool executor, memory, knowledge, skills, and conversation management.
+  </Card>
+  <Card title="stream() vs chat()">
+    `stream()` is the primary API — it returns an `AsyncIterableIterator<AgentEvent>`. `chat()` is a convenience method that consumes `stream()` internally and returns the final text.
+  </Card>
+</CardGroup>
+
+### Event Lifecycle
+
+Every agent execution emits events in this order:
+
+```
+agent_start → turn_start → text_delta* → text_done → turn_end → agent_end
+```
+
+When tools are involved, the sequence includes tool events within each turn:
+
+```
+agent_start
+  └── turn_start
+        ├── tool_call_start → tool_call_end
+        ├── tool_call_start → tool_call_end
+        └── ...
+      turn_end
+  └── turn_start
+        ├── text_delta (token 1)
+        ├── text_delta (token 2)
+        ├── ...
+        └── text_done
+      turn_end
+agent_end
+```
+
+### Lifecycle: Create, Use, Destroy
+
+<Info>
+  Always call `agent.destroy()` when you are done. This closes the SQLite database, disconnects MCP servers, and releases all resources. Failing to call `destroy()` may leave database connections open.
+</Info>
+
+```typescript
+// 1. Create
+const agent = Agent.create({ apiKey: process.env.LLM_API_KEY! });
+
+// 2. Use
+await agent.chat('Hello!');
+for await (const event of agent.stream('Tell me more')) { /* ... */ }
+
+// 3. Destroy — always clean up
+await agent.destroy();
+```

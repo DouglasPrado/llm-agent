@@ -1,0 +1,336 @@
+---
+title: "Skills"
+description: "Sistema modular de comportamentos para o agente: prefix, matching semantico e arquivos SKILL.md"
+---
+
+# Skills
+
+Skills sao modulos de comportamento que modificam como o agente opera quando ativadas. Elas podem injetar instrucoes no contexto, registrar tools temporarias e alterar o fluxo de execucao.
+
+## Definindo uma Skill
+
+Uma skill precisa de `name`, `description` e `instructions`:
+
+```typescript
+import { Agent } from 'agentx-sdk';
+import type { AgentSkill } from 'agentx-sdk';
+
+const reviewSkill: AgentSkill = {
+  name: 'code-review',
+  description: 'Faz review de codigo com foco em qualidade e seguranca',
+  instructions: `Voce esta no modo de code review. Analise o codigo fornecido seguindo estes criterios:
+1. Bugs e erros logicos
+2. Vulnerabilidades de seguranca
+3. Performance
+4. Legibilidade e manutencao
+5. Aderencia a boas praticas
+
+Formate o review com severidade: CRITICAL, WARNING, INFO.`,
+  triggerPrefix: '/review',
+};
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+});
+
+agent.addSkill(reviewSkill);
+
+// Ativada automaticamente pelo prefixo
+const response = await agent.chat('/review Analise este codigo: function add(a,b){return a+b}');
+```
+
+## Estrategias de Matching
+
+Skills podem ser ativadas de tres formas:
+
+<Tabs>
+  <Tab title="Prefix Match">
+    A forma mais simples — a skill ativa quando a mensagem comeca com o prefixo definido:
+
+    ```typescript
+    const skill: AgentSkill = {
+      name: 'translate',
+      description: 'Traduz texto para outro idioma',
+      instructions: 'Traduza o texto fornecido para o idioma solicitado.',
+      triggerPrefix: '/translate',
+      aliases: ['/trad', '/tr'],  // Prefixos alternativos
+    };
+    ```
+
+    Exemplos que ativam: `/translate Hello world`, `/trad Ola mundo`, `/tr Bonjour`
+  </Tab>
+
+  <Tab title="Custom Match">
+    Use uma funcao `match` para logica personalizada:
+
+    ```typescript
+    const skill: AgentSkill = {
+      name: 'sql-helper',
+      description: 'Ajuda a escrever queries SQL',
+      instructions: 'Ajude o usuario a escrever queries SQL otimizadas.',
+      match: (input, context) => {
+        // Ativa para qualquer mencao a SQL ou banco de dados
+        return /\b(sql|query|select|insert|update|delete|banco|database)\b/i.test(input);
+      },
+    };
+    ```
+  </Tab>
+
+  <Tab title="Matching Semantico">
+    Quando nenhum `triggerPrefix` ou `match` e definido, o `SkillManager` pode usar matching semantico baseado na descricao da skill. O modelo decide se a skill e relevante para a mensagem do usuario.
+
+    ```typescript
+    const skill: AgentSkill = {
+      name: 'debugging',
+      description: 'Ajuda a depurar e corrigir bugs em codigo',
+      instructions: 'Analise o problema descrito e ajude a encontrar a causa raiz...',
+      whenToUse: 'Quando o usuario reporta um erro, bug ou comportamento inesperado',
+      // Sem triggerPrefix ou match — usa matching semantico
+    };
+    ```
+
+    <Note>
+    O campo `whenToUse` ajuda o modelo a decidir **quando** invocar a skill proativamente. Use descricoes claras de cenarios.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Prioridade e Modo Exclusivo
+
+Quando multiplas skills casam com a mesma mensagem:
+
+```typescript
+const highPrioritySkill: AgentSkill = {
+  name: 'emergency',
+  description: 'Modo de emergencia',
+  instructions: 'Trate como urgente...',
+  priority: 10,       // Maior numero = maior prioridade (default: 0)
+  exclusive: true,    // Bloqueia outras skills quando ativada
+  match: (input) => input.includes('URGENTE'),
+};
+
+const lowPrioritySkill: AgentSkill = {
+  name: 'helper',
+  description: 'Ajuda geral',
+  instructions: 'Ajude o usuario...',
+  priority: 1,
+  // Se 'emergency' for ativada com exclusive: true, esta skill e bloqueada
+};
+```
+
+## Skills com Tools
+
+Skills podem registrar tools temporarias que so existem enquanto a skill esta ativa:
+
+```typescript
+import { z } from 'zod';
+
+const testSkill: AgentSkill = {
+  name: 'test-runner',
+  description: 'Executa e gerencia testes',
+  instructions: 'Voce esta no modo de testes. Use as tools disponiveis para executar e analisar testes.',
+  triggerPrefix: '/test',
+
+  // Tools registradas apenas quando a skill ativa
+  tools: [
+    {
+      name: 'run_test_suite',
+      description: 'Executa a suite de testes',
+      parameters: z.object({
+        pattern: z.string().optional().describe('Padrao glob de arquivos'),
+        watch: z.boolean().default(false),
+      }),
+      execute: async (args) => {
+        const { pattern, watch } = args as { pattern?: string; watch: boolean };
+        // Implementacao...
+        return 'Testes executados: 42 passed';
+      },
+    },
+    {
+      name: 'coverage_report',
+      description: 'Gera relatorio de cobertura',
+      parameters: z.object({}),
+      execute: async () => 'Cobertura: 87.3% (statements), 92.1% (branches)',
+    },
+  ],
+
+  // Restringe quais tools globais a skill pode usar
+  allowedTools: ['fileRead', 'grep', 'bash'],
+};
+```
+
+## Skill via Arquivo SKILL.md
+
+Skills podem ser definidas como arquivos Markdown com frontmatter:
+
+```markdown
+---
+name: code-review
+description: Review de codigo com foco em qualidade
+trigger: /review
+aliases: [/cr, /code-review]
+priority: 5
+sticky: true
+---
+
+# Code Review
+
+Voce esta no modo de code review. Analise o codigo seguindo estes criterios:
+
+1. **Bugs**: Erros logicos, null references, race conditions
+2. **Seguranca**: SQL injection, XSS, dados sensiveis expostos
+3. **Performance**: N+1 queries, loops desnecessarios, memory leaks
+4. **Legibilidade**: Nomes claros, funcoes pequenas, comentarios uteis
+
+## Formato de Saida
+
+Use a seguinte escala de severidade:
+- CRITICAL: Deve ser corrigido antes do merge
+- WARNING: Recomendado corrigir
+- INFO: Sugestao de melhoria
+```
+
+### Carregamento de Diretorio
+
+Carregue todas as skills de um diretorio:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  skills: {
+    skillsDir: './skills',  // Carrega automaticamente na criacao
+  },
+});
+
+// Ou carregue manualmente depois
+const count = await agent.loadSkillsDir('./more-skills');
+console.log(`${count} skills carregadas`);
+```
+
+Estrutura de diretorio esperada:
+
+```
+skills/
+  code-review/
+    SKILL.md
+  debugging/
+    SKILL.md
+  sql-helper/
+    SKILL.md
+```
+
+## Skills Condicionais
+
+Ative skills baseado em caminhos de arquivo tocados:
+
+```typescript
+const reactSkill: AgentSkill = {
+  name: 'react-patterns',
+  description: 'Boas praticas para componentes React',
+  instructions: 'Aplique boas praticas de React...',
+
+  // Ativa quando arquivos .tsx ou .jsx sao tocados
+  paths: ['**/*.tsx', '**/*.jsx'],
+
+  // Feature flag — desabilita se necessario
+  isEnabled: () => process.env.ENABLE_REACT_SKILL === 'true',
+};
+```
+
+Quando uma tool com `getFilePath` e executada, o SDK verifica automaticamente quais skills devem ser ativadas baseado nos patterns `paths`.
+
+## Skills Persistentes (Sticky)
+
+Skills podem permanecer ativas apos a primeira ativacao:
+
+```typescript
+const sessionSkill: AgentSkill = {
+  name: 'project-context',
+  description: 'Contexto do projeto atual',
+  instructions: 'Este projeto usa TypeScript, React e PostgreSQL...',
+  match: (input) => input.includes('projeto'),
+
+  // true = ativa ate clearHistory() ser chamado
+  sticky: true,
+
+  // Ou um numero = ativa por N turnos adicionais
+  // sticky: 10,
+};
+```
+
+## API de Skills
+
+```typescript
+// Adicionar skill
+agent.addSkill(skill);
+
+// Remover skill
+agent.removeSkill('code-review');
+
+// Listar todas as skills registradas
+const skills = agent.listSkills();
+
+// Ativar skills para caminhos de arquivo
+const activated = agent.activateSkillsForPaths(['/src/app.tsx', '/src/utils.ts']);
+
+// Carregar skills de diretorio
+const count = await agent.loadSkillsDir('./skills');
+
+// Limpar historico e skills sticky de um thread
+agent.clearHistory('thread-1');
+```
+
+## Prompt Dinamico com getPrompt
+
+Use `getPrompt` para gerar instrucoes dinamicamente:
+
+```typescript
+const skill: AgentSkill = {
+  name: 'context-loader',
+  description: 'Carrega contexto dinamico',
+  instructions: '', // Ignorado quando getPrompt esta presente
+  triggerPrefix: '/load',
+
+  getPrompt: async (args, context) => {
+    // args = texto apos o prefixo
+    // context = { threadId, traceId, skillDir }
+    const filename = args.trim();
+    const content = await fs.readFile(filename, 'utf-8');
+    return `Contexto carregado de ${filename}:\n\n${content}`;
+  },
+
+  // Argumentos nomeados para substituicao em instructions
+  argNames: ['filename'],
+};
+```
+
+## Pipeline: Como Skills Injetam no Contexto
+
+```
+Mensagem do usuario
+       |
+       v
+  SkillManager.match()
+       |
+       v
+  Skills ativadas (por prioridade, max 3 default)
+       |
+       v
+  resolveInstructions() — static ou getPrompt()
+       |
+       v
+  Injecao no contexto (source: 'skill:nome', priority: 8)
+       |
+       v
+  Tools da skill registradas temporariamente
+       |
+       v
+  ReactLoop executa com contexto enriquecido
+       |
+       v
+  Tools da skill desregistradas apos o turno
+```
+
+<Info>
+O `maxActiveSkills` (default: 3) limita quantas skills podem estar ativas simultaneamente. Se mais skills casarem, as de maior prioridade sao escolhidas.
+</Info>

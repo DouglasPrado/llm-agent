@@ -96,8 +96,15 @@ export async function getAgent(conversationId: string): Promise<Agent> {
 async function createAgent(conversationId: string): Promise<Agent> {
   const agent = Agent.create({
     apiKey: config.agent.apiKey,
+    baseUrl: config.agent.baseUrl,
     model: config.agent.model,
     systemPrompt: SYSTEM_PROMPT,
+
+    embedding: config.embedding.apiKey || config.embedding.baseUrl ? {
+      apiKey: config.embedding.apiKey,
+      baseUrl: config.embedding.baseUrl,
+      model: config.embedding.model,
+    } : undefined,
 
     memory: {
       enabled: true,
@@ -195,6 +202,7 @@ export async function validateMCP(): Promise<{ status: 'enabled' | 'disabled'; r
   // Quick probe — create a throwaway agent, attempt MCP connect, then destroy
   const agent = Agent.create({
     apiKey: config.agent.apiKey,
+    baseUrl: config.agent.baseUrl,
     model: config.agent.model,
     memory: { enabled: false },
     knowledge: { enabled: false },

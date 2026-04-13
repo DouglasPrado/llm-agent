@@ -1,0 +1,361 @@
+---
+title: "Tools"
+description: "Give your agent the ability to take actions"
+---
+
+Tools let your agent interact with the outside world -- search the web, query databases, read files, or call any API. Each tool is a self-contained unit with a name, description, typed parameters, and an `execute` function.
+
+## Defining a Tool
+
+Every tool implements the `AgentTool` interface. Parameters are defined with Zod, and the `execute` function receives parsed arguments plus an `AbortSignal`.
+
+```typescript
+import { z } from 'zod';
+import type { AgentTool } from 'agentx-sdk';
+
+const tavilySearch: AgentTool = {
+  name: 'tavily_search',
+  description: 'Search the web using Tavily API and return relevant results',
+  parameters: z.object({
+    query: z.string().describe('The search query'),
+    maxResults: z.number().optional().default(5).describe('Maximum results to return'),
+  }),
+  async execute(args, signal) {
+    const { query, maxResults } = args as { query: string; maxResults: number };
+
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: process.env.TAVILY_API_KEY!,
+        query,
+        max_results: maxResults,
+      }),
+      signal, // forward AbortSignal
+    });
+
+    const data = await response.json();
+    return JSON.stringify(data.results, null, 2);
+  },
+};
+```
+
+## Using with Agent
+
+Register tools with `addTool()` and remove them with `removeTool()`.
+
+<CodeGroup>
+
+```typescript Adding tools
+import { Agent } from 'agentx-sdk';
+
+const agent = new Agent({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'openai/gpt-4o',
+});
+
+agent.addTool(tavilySearch);
+```
+
+```typescript Removing tools
+agent.removeTool('tavily_search');
+```
+
+</CodeGroup>
+
+When the agent uses a tool, it emits streaming events you can listen to:
+
+```typescript
+for await (const event of agent.stream('Search for TypeScript best practices')) {
+  switch (event.type) {
+    case 'tool_call_start':
+      console.log(`Calling tool: ${event.toolCall.function.name}`);
+      break;
+    case 'tool_call_end':
+      console.log(`Tool finished in ${event.duration}ms`);
+      if (event.result.isError) {
+        console.error(`Tool error: ${event.result.content}`);
+      }
+      break;
+    case 'text_delta':
+      process.stdout.write(event.content);
+      break;
+  }
+}
+```
+
+## Return Types
+
+A tool's `execute` function can return either a plain string or a structured `AgentToolResult`:
+
+<CodeGroup>
+
+```typescript String return
+async execute(args, signal) {
+  return 'Operation completed successfully';
+}
+```
+
+```typescript AgentToolResult return
+async execute(args, signal) {
+  return {
+    content: 'Found 42 matching records',
+    metadata: { count: 42, source: 'database' },
+    isError: false,
+  };
+}
+```
+
+```typescript Error result
+async execute(args, signal) {
+  return {
+    content: 'API rate limit exceeded. Try again later.',
+    isError: true,
+  };
+}
+```
+
+</CodeGroup>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | `string` | The text result sent to the LLM |
+| `metadata` | `Record<string, unknown>` | Optional metadata (not sent to LLM, available in events) |
+| `isError` | `boolean` | If `true`, signals an error to the LLM and triggers `onToolError` behavior |
+
+## Semantic Validation
+
+Use `validate` to reject invalid tool calls **before** execution. Return `null` to allow, or an error string to reject.
+
+```typescript
+const deleteTool: AgentTool = {
+  name: 'delete_record',
+  description: 'Delete a record from the database',
+  parameters: z.object({
+    id: z.string().describe('Record ID to delete'),
+    confirm: z.boolean().describe('Must be true to confirm deletion'),
+  }),
+  async validate(args, context) {
+    const { confirm } = args as { confirm: boolean };
+    if (!confirm) {
+      return 'Deletion requires explicit confirmation. Set confirm to true.';
+    }
+    // context provides threadId and recentMessages count
+    return null; // validation passed
+  },
+  async execute(args, signal) {
+    const { id } = args as { id: string };
+    // perform deletion...
+    return `Record ${id} deleted successfully`;
+  },
+};
+```
+
+<Info>
+The `validate` function receives a `ToolValidationContext` with `threadId` and `recentMessages`, so you can apply context-aware validation rules.
+</Info>
+
+## AbortSignal
+
+Every tool receives an `AbortSignal` as its second argument. Always forward it to `fetch` calls and long-running operations so the agent can cancel gracefully.
+
+```typescript
+const apiTool: AgentTool = {
+  name: 'call_api',
+  description: 'Call an external API endpoint',
+  parameters: z.object({
+    url: z.string().url().describe('API endpoint URL'),
+  }),
+  timeoutMs: 15_000, // per-tool timeout
+  async execute(args, signal) {
+    const { url } = args as { url: string };
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${process.env.LLM_API_KEY!}` },
+      signal, // cancels the request if the agent aborts
+    });
+
+    if (!response.ok) {
+      return { content: `HTTP ${response.status}: ${response.statusText}`, isError: true };
+    }
+
+    return await response.text();
+  },
+};
+```
+
+<Warning>
+If you don't forward the `signal`, the tool will keep running even after the agent aborts or times out. Always pass `signal` to `fetch`, child processes, and any async operation that supports it.
+</Warning>
+
+## Parallel Execution
+
+Tools that are safe to run concurrently can opt in with `isConcurrencySafe: true`. When the LLM requests multiple tool calls in a single turn, concurrency-safe tools run in parallel via `Promise.all`.
+
+```typescript
+const searchTool: AgentTool = {
+  name: 'search_docs',
+  description: 'Search the documentation index',
+  parameters: z.object({ query: z.string() }),
+  isConcurrencySafe: true,  // safe to run in parallel
+  isReadOnly: true,          // no side effects
+  async execute(args, signal) {
+    const { query } = args as { query: string };
+    // read-only search...
+    return `Results for: ${query}`;
+  },
+};
+
+const writeTool: AgentTool = {
+  name: 'write_file',
+  description: 'Write content to a file',
+  parameters: z.object({ path: z.string(), content: z.string() }),
+  isConcurrencySafe: false,  // must run serially (default)
+  isDestructive: true,        // irreversible operation
+  async execute(args, signal) {
+    // write operation...
+    return 'File written';
+  },
+};
+```
+
+<Note>
+When the LLM calls multiple tools in one turn, all tools with `isConcurrencySafe: true` run in parallel first, then serial tools run one by one.
+</Note>
+
+## Error Handling
+
+Control what happens when a tool returns an error or throws an exception using `onToolError` in the agent configuration:
+
+```typescript
+const agent = new Agent({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'openai/gpt-4o',
+  onToolError: 'continue', // default
+});
+```
+
+| Strategy | Behavior | Use Case |
+|----------|----------|----------|
+| `continue` (default) | Error is sent as a tool result to the LLM, loop continues | The LLM can recover or try a different approach |
+| `stop` | The ReactLoop stops immediately | Critical tools where failure means the task cannot continue |
+| `retry` | Re-runs the LLM turn once so the model can correct its arguments, then falls back to `continue` | Typos in arguments, transient parsing issues |
+
+Individual tools can also opt into retry behavior independently:
+
+```typescript
+const flakytool: AgentTool = {
+  name: 'flaky_api',
+  description: 'Call a sometimes-unreliable API',
+  parameters: z.object({ endpoint: z.string() }),
+  retryable: true,   // enable retries for this tool
+  maxRetries: 2,      // up to 2 retry attempts
+  async execute(args, signal) {
+    // may fail transiently...
+    return 'OK';
+  },
+};
+```
+
+## Builtin Tools
+
+AgentX SDK ships with 8 ready-to-use tools for common operations.
+
+| Tool | Factory | Description |
+|------|---------|-------------|
+| **fileRead** | `builtinTools.fileRead()` | Read file contents with line numbers |
+| **fileWrite** | `builtinTools.fileWrite()` | Write or create files |
+| **fileEdit** | `builtinTools.fileEdit()` | Find-and-replace editing in files |
+| **glob** | `builtinTools.glob()` | File pattern search (`**`, `*`, `?`) |
+| **grep** | `builtinTools.grep()` | Content search via regex |
+| **bash** | `builtinTools.bash()` | Shell command execution |
+| **webFetch** | `builtinTools.webFetch()` | Fetch URL content |
+| **askUser** | `builtinTools.askUser(callback)` | Ask the user a question (requires callback) |
+
+<CodeGroup>
+
+```typescript Register all builtin tools
+import { builtinTools } from 'agentx-sdk';
+
+// All tools except askUser (which needs a callback)
+builtinTools.all().forEach(tool => agent.addTool(tool));
+```
+
+```typescript Register individual tools
+import { builtinTools } from 'agentx-sdk';
+
+agent.addTool(builtinTools.fileRead());
+agent.addTool(builtinTools.grep());
+agent.addTool(builtinTools.webFetch());
+```
+
+```typescript Register file operation tools
+import { builtinTools } from 'agentx-sdk';
+
+// fileRead + fileWrite + fileEdit + glob + grep
+builtinTools.fileOps().forEach(tool => agent.addTool(tool));
+```
+
+```typescript askUser with callback
+import { builtinTools } from 'agentx-sdk';
+
+agent.addTool(
+  builtinTools.askUser({
+    callback: async (question) => {
+      // your UI logic to prompt the user
+      const answer = await promptUser(question);
+      return answer;
+    },
+  })
+);
+```
+
+</CodeGroup>
+
+## SQL Query Tools
+
+The `createSqlTools` factory generates two meta-tools (`search_queries` + `run_query`) from a catalog of SQL query definitions. This keeps LLM context small (2 tool definitions instead of N) while giving the agent access to all queries via a search-then-execute workflow.
+
+```typescript
+import { createSqlTools } from 'agentx-sdk';
+import { z } from 'zod';
+import pg from 'pg';
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+
+const sqlTools = createSqlTools({
+  pool,
+  queries: [
+    {
+      name: 'customers_by_plan',
+      description: 'Find customers filtered by subscription plan',
+      sql: 'SELECT id, name, email FROM customers WHERE plan = $1 LIMIT $2',
+      parameters: z.object({
+        plan: z.string().describe('Subscription plan name'),
+        limit: z.number().default(10).describe('Max rows to return'),
+      }),
+      tags: ['customers', 'billing'],
+    },
+    {
+      name: 'revenue_by_month',
+      description: 'Get monthly revenue totals for a given year',
+      sql: 'SELECT month, total FROM revenue WHERE year = $1 ORDER BY month',
+      parameters: z.object({
+        year: z.number().describe('Year to query'),
+      }),
+      tags: ['finance', 'revenue'],
+    },
+  ],
+  maxResultChars: 8_000,    // truncate large results (default: 8000)
+  defaultTimeoutMs: 30_000, // per-query timeout (default: 30s)
+});
+
+// Register both tools with the agent
+sqlTools.forEach(tool => agent.addTool(tool));
+```
+
+<Info>
+The `pool` parameter accepts any object with a `query(sql, values)` method that returns `{ rows }`, making it compatible with `pg.Pool`, `pg.Client`, and similar Postgres-compatible clients.
+</Info>
+
+The agent will first call `search_queries` to discover available queries by keyword, then call `run_query` to execute the matched query with validated parameters. Parameter order in the Zod schema determines the `$1, $2, ...` mapping in the SQL string.

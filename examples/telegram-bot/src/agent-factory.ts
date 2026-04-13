@@ -14,7 +14,14 @@ export async function getAgent(): Promise<Agent> {
 
   agent = Agent.create({
     apiKey: config.agent.apiKey,
+    baseUrl: config.agent.baseUrl,
     model: config.agent.model,
+
+    embedding: config.embedding.apiKey || config.embedding.baseUrl ? {
+      apiKey: config.embedding.apiKey,
+      baseUrl: config.embedding.baseUrl,
+      model: config.embedding.model,
+    } : undefined,
     systemPrompt: `You are Albert, a helpful Telegram assistant for managing businesses on the Albert platform.
 
 You have PERSISTENT MEMORY across conversations. You remember facts, preferences, and context from previous messages. Never say you don't have memory or don't remember previous conversations — you do.

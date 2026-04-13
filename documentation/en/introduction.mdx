@@ -1,0 +1,82 @@
+---
+title: "Introduction"
+description: "AgentX SDK — TypeScript library for building conversational AI agents"
+---
+
+# AgentX SDK
+
+AgentX SDK is a standalone TypeScript library for building conversational AI agents. It provides streaming-first interactions, tool calling, persistent memory, knowledge/RAG, a skills system, and MCP integration — all with minimal dependencies and no framework lock-in.
+
+Built for Node.js 22+, it uses native `fetch()` for LLM communication and works with **any OpenAI-compatible API provider** out of the box.
+
+<CardGroup cols={3}>
+  <Card title="Streaming First" icon="bolt">
+    `stream()` is the primary API. Real-time `AsyncIterableIterator` events for every token, tool call, and lifecycle change.
+  </Card>
+  <Card title="Tool Calling" icon="wrench">
+    Register tools with Zod schemas. Parallel execution, timeout control, and error recovery built in.
+  </Card>
+  <Card title="Persistent Memory" icon="brain">
+    Automatic fact extraction from conversations. File-based storage with relevance scoring and decay.
+  </Card>
+  <Card title="Knowledge / RAG" icon="book">
+    Ingest documents, chunk them, generate embeddings, and retrieve relevant context at query time via vector search.
+  </Card>
+  <Card title="Skills System" icon="puzzle-piece">
+    Dynamic skill discovery and execution. Agents can activate specialized capabilities on demand.
+  </Card>
+  <Card title="MCP Integration" icon="plug">
+    Connect to external tool servers via Model Context Protocol (stdio, SSE, HTTP transports).
+  </Card>
+</CardGroup>
+
+## Architecture Overview
+
+```
+Agent
+├── ContextPipeline (Skills → Knowledge → Memory → History)
+├── ReactLoop (LLM call → Tool exec → Iterate)
+├── StreamEmitter (AsyncIterableIterator<AgentEvent>)
+├── LLMClient (streamChat, chat, embed)
+├── ToolExecutor (register, execute, parallel)
+└── Stores (MemoryStore, VectorStore, ConversationStore)
+```
+
+The `Agent` class is the single entry point. It orchestrates a **ReactLoop** that calls the LLM, detects tool calls, executes them, and iterates until the model produces a final text response. A **ContextPipeline** assembles the prompt from skills, knowledge, memory, and conversation history before each LLM call.
+
+## Tech Stack
+
+| Layer | Technology | Version | Purpose |
+|---|---|---|---|
+| Language | TypeScript | 5.x | Static typing, clear public API |
+| Runtime | Node.js | 22+ | Native `fetch()`, `AbortSignal`, dynamic import |
+| Validation | Zod | 3.x | Single validation system for config and tool schemas |
+| Persistence | better-sqlite3 + SQLite | 3.x | Single-file DB, WAL mode, FTS5, zero config |
+| Tool Contracts | zod-to-json-schema | 3.x | Zod to JSON Schema conversion for function calling |
+
+<Note>
+  The SDK maintains a strict limit of **4 or fewer direct dependencies** in `package.json`. HTTP is handled via native `fetch()` — no axios or vendor SDKs.
+</Note>
+
+## Design Principles
+
+<AccordionGroup>
+  <Accordion title="Minimal Dependencies">
+    HTTP via native `fetch()`. Validation with Zod only. No LLM vendor SDKs. The entire dependency tree stays small and auditable.
+  </Accordion>
+  <Accordion title="Streaming First">
+    `stream()` is the primary API. `chat()` is a convenience wrapper that consumes `stream()` internally. Every subsystem emits events.
+  </Accordion>
+  <Accordion title="Pluggable Stores">
+    `MemoryStore`, `VectorStore`, and `ConversationStore` are interfaces. SQLite implementations are the defaults, but you can plug in your own.
+  </Accordion>
+  <Accordion title="Cost Control">
+    `CostPolicy` enforces token and tool-call limits per execution and per session. Prevents runaway spending.
+  </Accordion>
+  <Accordion title="Fault Tolerance">
+    Retry with backoff, `onToolError: 'continue'` strategy, fallback models, and errors with `traceId` for debugging.
+  </Accordion>
+  <Accordion title="Observability">
+    Every event carries a `traceId` and `duration`. Hook into events for OpenTelemetry, logging, or custom dashboards.
+  </Accordion>
+</AccordionGroup>

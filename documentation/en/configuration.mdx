@@ -1,0 +1,313 @@
+---
+title: "Configuration"
+description: "Complete reference for all Agent.create() options"
+---
+
+# Configuration
+
+All configuration is passed to `Agent.create()` and validated with Zod at runtime. Invalid options throw a descriptive error immediately.
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  systemPrompt: 'You are a helpful assistant.',
+});
+```
+
+## Core Options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `apiKey` | `string` | **required** | API key for the LLM provider |
+| `model` | `string` | `anthropic/claude-sonnet-4-20250514` | Model identifier (use provider prefix for OpenRouter) |
+| `baseUrl` | `string` | `https://openrouter.ai/api/v1` | Base URL for the LLM API |
+| `systemPrompt` | `string` | `undefined` | System prompt prepended to every conversation |
+| `logLevel` | `string` | `info` | Log verbosity: `debug`, `info`, `warn`, `error`, `silent` |
+| `dbPath` | `string` | `~/.agent/data.db` | Path for the SQLite database file |
+
+## Embedding Provider
+
+Configure a separate provider for embeddings (e.g., use OpenAI directly for embeddings while using OpenRouter for chat).
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  embeddingModel: 'openai/text-embedding-3-small',
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+  },
+});
+```
+
+<Info>
+  When `embedding` is not specified, the SDK falls back to the main `apiKey` and `baseUrl` for embedding requests.
+</Info>
+
+## Behavior Options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `maxIterations` | `number` | `10` | Maximum ReactLoop iterations (LLM calls) per execution |
+| `maxConsecutiveErrors` | `number` | `3` | Consecutive tool errors before stopping |
+| `onToolError` | `string` | `continue` | Strategy when a tool fails |
+
+### onToolError Strategies
+
+<Tabs>
+  <Tab title="continue">
+    The error message is sent back to the LLM as the tool result. The model can decide how to proceed. This is the default and most resilient strategy.
+  </Tab>
+  <Tab title="stop">
+    The entire execution stops immediately when a tool error occurs. Use this when tool failures are critical and should not be ignored.
+  </Tab>
+  <Tab title="retry">
+    The tool call is retried automatically with exponential backoff. Useful for transient failures (network timeouts, rate limits).
+  </Tab>
+</Tabs>
+
+## Context Budget
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `maxContextTokens` | `number` | `128000` | Maximum tokens for the full context window |
+| `reserveTokens` | `number` | `4096` | Tokens reserved for the model's output |
+| `maxPinnedMessages` | `number` | `20` | Maximum number of pinned (non-evictable) messages |
+| `compactionThreshold` | `number` | `0.8` | Context usage ratio that triggers compaction (0.0 - 1.0) |
+
+## Cost Policy
+
+Enforce token and tool-call limits to prevent runaway spending.
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  costPolicy: {
+    maxTokensPerExecution: 50_000,
+    maxTokensPerSession: 500_000,
+    maxToolCallsPerExecution: 20,
+    onLimitReached: 'stop',
+  },
+});
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `maxTokensPerExecution` | `number` | `undefined` | Token limit per single `chat()`/`stream()` call |
+| `maxTokensPerSession` | `number` | `undefined` | Token limit across the entire agent session |
+| `maxToolCallsPerExecution` | `number` | `50` | Maximum tool calls per execution |
+| `onLimitReached` | `string` | `stop` | Action when a limit is hit: `stop` or `warn` |
+
+## Memory Configuration
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  memory: {
+    enabled: true,
+    memoryDir: '~/.agent/memory/',
+    maxMemoryFiles: 200,
+    extractionEnabled: true,
+    samplingRate: 0.3,
+    extractionInterval: 10,
+  },
+});
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | `true` | Enable/disable the memory subsystem |
+| `memoryDir` | `string` | `~/.agent/memory/` | Directory for memory files |
+| `maxMemoryFiles` | `number` | `200` | Maximum number of memory files to retain |
+| `extractionEnabled` | `boolean` | `true` | Enable automatic fact extraction from conversations |
+| `samplingRate` | `number` | `0.3` | Fraction of turns sampled for extraction (0.0 - 1.0) |
+| `extractionInterval` | `number` | `10` | Number of turns between extraction runs |
+
+## Knowledge / RAG Configuration
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  knowledge: {
+    enabled: true,
+    chunkSize: 512,
+    chunkOverlap: 64,
+    topK: 5,
+    minScore: 0.3,
+  },
+});
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | `true` | Enable/disable the knowledge subsystem |
+| `store` | `VectorStore` | `undefined` | Custom vector store implementation (defaults to SQLite) |
+| `chunkSize` | `number` | `512` | Token size for document chunks |
+| `chunkOverlap` | `number` | `64` | Overlap between consecutive chunks |
+| `topK` | `number` | `5` | Number of chunks to retrieve per query |
+| `minScore` | `number` | `0.3` | Minimum similarity score to include a result |
+
+## Skills Configuration
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  skills: {
+    skillsDir: './skills',
+    maxActiveSkills: 3,
+    modelDiscovery: true,
+  },
+});
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `skillsDir` | `string` | `undefined` | Directory to scan for skill definitions |
+| `maxActiveSkills` | `number` | `3` | Maximum skills active simultaneously |
+| `modelDiscovery` | `boolean` | `true` | Allow the model to discover and activate skills |
+
+## Conversation Store
+
+Plug in a custom conversation store or use the default SQLite-backed implementation.
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  conversation: {
+    store: myCustomConversationStore,
+  },
+});
+```
+
+## MCP Servers
+
+Connect to external tool servers via the Model Context Protocol. See the [LLM Providers](/en/llm-providers) page for more details on provider configuration.
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  mcp: [
+    {
+      name: 'file-server',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+      timeout: 30_000,
+    },
+    {
+      name: 'web-search',
+      transport: 'sse',
+      url: 'http://localhost:3001/sse',
+    },
+  ],
+});
+```
+
+## Recovery Options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `fallbackModel` | `string` | `undefined` | Model to use if the primary model fails |
+| `maxOutputTokens` | `number` | `undefined` | Maximum output tokens for the model response |
+| `escalatedMaxOutputTokens` | `number` | `undefined` | Increased output limit for retries or complex responses |
+
+## Deterministic Mode
+
+Useful for testing and reproducible results.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `deterministic` | `boolean` | `false` | Enable deterministic mode |
+| `seed` | `number` | `undefined` | Random seed for reproducible outputs |
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  deterministic: true,
+  seed: 42,
+});
+```
+
+## Full Example
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  // Core
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  baseUrl: 'https://openrouter.ai/api/v1',
+  systemPrompt: 'You are a knowledgeable research assistant.',
+  logLevel: 'info',
+  dbPath: './data/agent.db',
+
+  // Embedding provider (separate from chat)
+  embeddingModel: 'openai/text-embedding-3-small',
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+  },
+
+  // Behavior
+  maxIterations: 15,
+  maxConsecutiveErrors: 3,
+  onToolError: 'continue',
+
+  // Context budget
+  maxContextTokens: 128_000,
+  reserveTokens: 4_096,
+  maxPinnedMessages: 20,
+  compactionThreshold: 0.8,
+
+  // Cost policy
+  costPolicy: {
+    maxTokensPerExecution: 50_000,
+    maxTokensPerSession: 500_000,
+    maxToolCallsPerExecution: 30,
+    onLimitReached: 'stop',
+  },
+
+  // Memory
+  memory: {
+    enabled: true,
+    memoryDir: './data/memory/',
+    maxMemoryFiles: 200,
+    extractionEnabled: true,
+    samplingRate: 0.3,
+    extractionInterval: 10,
+  },
+
+  // Knowledge / RAG
+  knowledge: {
+    enabled: true,
+    chunkSize: 512,
+    chunkOverlap: 64,
+    topK: 5,
+    minScore: 0.3,
+  },
+
+  // Skills
+  skills: {
+    skillsDir: './skills',
+    maxActiveSkills: 3,
+    modelDiscovery: true,
+  },
+
+  // Recovery
+  fallbackModel: 'openai/gpt-4o',
+  maxOutputTokens: 4_096,
+
+  // Determinism (for testing)
+  deterministic: false,
+});
+```
+
+<Warning>
+  Always call `await agent.destroy()` when you are done to close database connections and release resources.
+</Warning>

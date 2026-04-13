@@ -75,8 +75,12 @@ Add the bot to Teams and send a message.
 | `MICROSOFT_APP_PASSWORD`  | Yes      | Bot Framework App Password                |
 | `MICROSOFT_APP_TENANT_ID` | No       | Azure AD Tenant ID (empty = multi-tenant) |
 | `PORT`                    | No       | Server port (default: 3978)               |
-| `OPENROUTER_API_KEY`      | Yes      | OpenRouter API key                        |
+| `LLM_API_KEY`             | Yes      | LLM API key (any OpenAI-compatible provider) |
+| `LLM_BASE_URL`            | No       | LLM base URL (default: OpenRouter)        |
 | `AGENT_MODEL`             | No       | LLM model (default: claude-sonnet)        |
+| `EMBEDDING_API_KEY`       | No       | Embedding API key (default: LLM_API_KEY)  |
+| `EMBEDDING_BASE_URL`      | No       | Embedding base URL (default: LLM_BASE_URL)|
+| `EMBEDDING_MODEL`         | No       | Embedding model (default: text-embedding-3-small) |
 | `TAVILY_API_KEY`          | No       | Tavily API key for web search             |
 | `MCP_ALBERT_URL`          | No       | MCP server URL                            |
 | `MCP_ALBERT_TOKEN`        | No       | MCP server Bearer token                   |

@@ -2,15 +2,34 @@
 
 ## Como usar o framework
 
-A API gira em torno de uma classe `Agent` com dois metodos principais — `.chat()` (retorna string) e `.stream()` (retorna `AsyncIterableIterator<AgentEvent>`). Zero dependencia de frameworks de IA — so `fetch()` direto para o OpenRouter.
+A API gira em torno de uma classe `Agent` com dois metodos principais — `.chat()` (retorna string) e `.stream()` (retorna `AsyncIterableIterator<AgentEvent>`). Zero dependencia de frameworks de IA — so `fetch()` nativo para qualquer API OpenAI-compatible (OpenRouter, OpenAI, Azure, Groq, Together, etc.).
 
 ```typescript
 import { Agent } from "./src/agent";
 import { z } from "zod";
 
+// OpenRouter (default)
 const agent = new Agent({
   apiKey: "sk-or-...",
   model: "anthropic/claude-sonnet-4",
+});
+
+// OpenAI direto
+const agent = new Agent({
+  apiKey: "sk-...",
+  baseUrl: "https://api.openai.com/v1",
+  model: "gpt-4o",
+});
+
+// OpenRouter para chat + OpenAI direto para embeddings (menor latencia/custo)
+const agent = new Agent({
+  apiKey: "sk-or-...",
+  model: "anthropic/claude-sonnet-4",
+  embedding: {
+    apiKey: "sk-...",
+    baseUrl: "https://api.openai.com/v1",
+    model: "text-embedding-3-small",
+  },
 });
 ```
 
@@ -101,7 +120,7 @@ await agent.chat("Quanto custa o produto X?"); // responde com base no documento
 O fluxo interno:
 
 1. **Chunking** — divide o texto em pedacos (fixed-size ou recursive character)
-2. **Embedding** — gera vetores via OpenRouter
+2. **Embedding** — gera vetores via LLM API (OpenRouter, OpenAI direto, ou qualquer provider OpenAI-compatible)
 3. **Storage** — salva no SQLite (vetores + conteudo + metadata)
 
 Na hora do `.chat()`, o `ContextPipeline` busca automaticamente os chunks mais relevantes via similaridade cosseno + FTS5 e injeta no contexto do LLM.
@@ -113,12 +132,72 @@ const agent = new Agent({
   apiKey: "...",
   model: "...",
   knowledge: {
-    embeddingModel: "openai/text-embedding-3-small",
-    chunkingStrategy: new RecursiveCharacterChunking({ maxSize: 1000 }),
-    cacheResults: true,
+    chunkSize: 1000,
+    chunkOverlap: 128,
+    topK: 5,
+    minScore: 0.3,
+  },
+  // Embedding via OpenAI direto (menor latencia para embeddings)
+  embedding: {
+    apiKey: process.env.OPENAI_API_KEY,
+    baseUrl: "https://api.openai.com/v1",
+    model: "text-embedding-3-small",
   },
 });
 ```
+
+---
+
+## Providers LLM — Configuracao flexivel
+
+O SDK usa um `LLMClient` generico que funciona com qualquer API OpenAI-compatible. Nao ha dependencia de nenhum provider especifico.
+
+### Variaveis de ambiente (examples)
+
+| Variavel | Descricao | Obrigatorio |
+|---|---|---|
+| `LLM_API_KEY` | API key do provider de chat | Sim |
+| `LLM_BASE_URL` | Base URL do provider (default: OpenRouter) | Nao |
+| `AGENT_MODEL` | Modelo para chat (default: `anthropic/claude-sonnet-4-20250514`) | Nao |
+| `EMBEDDING_API_KEY` | API key para embeddings (default: usa `LLM_API_KEY`) | Nao |
+| `EMBEDDING_BASE_URL` | Base URL para embeddings (default: usa `LLM_BASE_URL`) | Nao |
+| `EMBEDDING_MODEL` | Modelo de embedding (default: `openai/text-embedding-3-small`) | Nao |
+
+### Cenarios de configuracao
+
+```typescript
+// 1. OpenRouter para tudo (default)
+Agent.create({
+  apiKey: process.env.LLM_API_KEY,
+  model: "anthropic/claude-sonnet-4-20250514",
+});
+
+// 2. OpenAI direto para tudo
+Agent.create({
+  apiKey: process.env.LLM_API_KEY,
+  baseUrl: "https://api.openai.com/v1",
+  model: "gpt-4o",
+  embeddingModel: "text-embedding-3-small",
+});
+
+// 3. OpenRouter para chat + OpenAI para embeddings
+Agent.create({
+  apiKey: process.env.LLM_API_KEY,
+  model: "anthropic/claude-sonnet-4-20250514",
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY,
+    baseUrl: "https://api.openai.com/v1",
+    model: "text-embedding-3-small",
+  },
+});
+```
+
+### Nota sobre nomes de modelo
+
+O nome do modelo depende do provider:
+- **OpenRouter**: usa prefixo do provider — `anthropic/claude-sonnet-4`, `openai/gpt-4o`, `openai/text-embedding-3-small`
+- **OpenAI direto**: sem prefixo — `gpt-4o`, `text-embedding-3-small`
+- **Outros**: conforme documentacao do provider
 
 ---
 

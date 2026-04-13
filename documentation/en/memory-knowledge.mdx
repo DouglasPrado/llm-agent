@@ -1,0 +1,257 @@
+---
+title: "Memory & Knowledge"
+description: "Persistent memory and RAG for your agent"
+---
+
+AgentX SDK provides two complementary systems for giving your agent long-term context: **Memory** for facts extracted from conversations, and **Knowledge** for RAG over ingested documents.
+
+## Memory
+
+Memory lets your agent remember facts across conversations. Memories are stored as Markdown files with YAML frontmatter, organized by type and thread.
+
+### Storing and Recalling
+
+<CodeGroup>
+
+```typescript Manual memory
+import { Agent } from 'agentx-sdk';
+
+const agent = new Agent({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'openai/gpt-4o',
+});
+
+// Store a memory (returns the filename)
+const filename = await agent.remember(
+  'User prefers dark mode and compact layouts',
+  'user' // type: 'user' | 'feedback' | 'project' | 'reference'
+);
+
+// Recall relevant memories by semantic query
+const memories = await agent.recall('What are the user preferences?');
+for (const mem of memories) {
+  console.log(`[${mem.type}] ${mem.name}: ${mem.content}`);
+}
+```
+
+```typescript Thread-scoped memory
+// Store a memory scoped to a specific thread
+await agent.remember(
+  'This project uses PostgreSQL 16',
+  'project',
+  'thread_abc123' // optional threadId
+);
+
+// Recall only searches memories accessible to the thread
+const memories = await agent.recall('database setup', 'thread_abc123');
+```
+
+</CodeGroup>
+
+### Memory File Format
+
+Each memory is a `.md` file with YAML frontmatter:
+
+```markdown
+---
+type: user
+threadId: thread_abc123
+createdAt: 2026-04-10T14:30:00Z
+---
+User prefers dark mode and compact layouts.
+
+**Why:** Mentioned during onboarding session.
+**How to apply:** Default to dark theme in UI responses.
+```
+
+### Memory Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `user` | User preferences and personal facts | "Prefers dark mode", "Senior engineer" |
+| `feedback` | Corrections and behavioral guidance | "Don't use emojis in responses" |
+| `project` | Technical facts about the project | "Uses PostgreSQL 16 with pgvector" |
+| `reference` | Reusable knowledge and patterns | "API authentication flow" |
+
+### Thread Isolation
+
+Memories respect thread boundaries. A memory created in one thread is accessible within that thread and globally, but thread-scoped recall only returns memories relevant to that context.
+
+### Automatic Extraction
+
+The agent can automatically extract memories from conversations without manual calls. This is controlled by two settings:
+
+```typescript
+const agent = new Agent({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'openai/gpt-4o',
+  memory: {
+    samplingRate: 0.3,        // probability of extraction check per turn (default: 0.3)
+    extractionInterval: 10,   // guaranteed extraction every N turns (default: 10)
+  },
+});
+```
+
+<Info>
+Extraction uses a sampling strategy: on every turn, there is a `samplingRate` chance of triggering extraction. Additionally, extraction is guaranteed every `extractionInterval` turns. This balances memory quality with LLM cost.
+</Info>
+
+When extraction triggers, the agent emits a `memory_extracted` event:
+
+```typescript
+for await (const event of agent.stream('...')) {
+  if (event.type === 'memory_extracted') {
+    console.log(`Memory saved: ${event.filename}`);
+  }
+}
+```
+
+### LLM-Powered Relevance
+
+When the agent recalls memories, it uses LLM-powered relevance scoring to find the most useful memories for the current context. Relevant memories are automatically injected into the context pipeline before each LLM turn.
+
+## Knowledge / RAG
+
+The Knowledge subsystem enables Retrieval-Augmented Generation (RAG) by ingesting documents, splitting them into chunks, embedding them, and retrieving relevant chunks at query time.
+
+### Ingesting Documents
+
+```typescript
+await agent.ingestKnowledge({
+  content: 'AgentX SDK supports streaming-first architecture. The primary API is stream(), which returns an AsyncIterableIterator of AgentEvent objects. The chat() method consumes stream() internally for convenience...',
+  metadata: {
+    source: 'docs/architecture.md',
+    version: '2.0',
+  },
+});
+```
+
+<Note>
+The `metadata` field is optional and accepts any key-value pairs. It is stored alongside chunks and returned in retrieval results for traceability.
+</Note>
+
+### RAG Pipeline
+
+The ingestion and retrieval pipeline works as follows:
+
+<Tabs>
+  <Tab title="Ingestion">
+    1. **Chunk** -- Document is split using recursive character splitting (default: 512 characters, 64 character overlap)
+    2. **Embed** -- Each chunk is converted to a vector embedding via the configured embedding provider
+    3. **Store** -- Chunks with their embeddings are persisted in the `VectorStore`
+  </Tab>
+  <Tab title="Retrieval">
+    1. **Embed query** -- The user's message is embedded using the same model
+    2. **Search** -- Vector similarity search finds the top-K most relevant chunks
+    3. **Inject** -- Retrieved chunks are injected into the context pipeline before the LLM turn
+  </Tab>
+</Tabs>
+
+### Automatic RAG Injection
+
+You do not need to call retrieval manually. When knowledge is available, the agent automatically embeds the user's message and retrieves relevant chunks before each LLM turn. A `knowledge_retrieved` event is emitted:
+
+```typescript
+for await (const event of agent.stream('How does streaming work?')) {
+  if (event.type === 'knowledge_retrieved') {
+    console.log(`Retrieved ${event.chunks} chunks (top score: ${event.topScore})`);
+  }
+}
+```
+
+### Chunking Configuration
+
+The default chunking strategy uses recursive character splitting, which splits on paragraphs, sentences, and words in order to preserve semantic boundaries.
+
+```typescript
+const agent = new Agent({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'openai/gpt-4o',
+  knowledge: {
+    chunkSize: 512,     // characters per chunk (default: 512)
+    chunkOverlap: 64,   // overlap between chunks (default: 64)
+  },
+});
+```
+
+### Embedding Caching
+
+Embeddings are cached in an LRU cache to avoid redundant API calls:
+
+- **Max size:** 10,000 entries
+- **TTL:** 1 hour (3,600,000ms)
+
+This means repeated queries or re-ingested content will use cached embeddings instead of making new API calls.
+
+### Separate Embedding Provider
+
+You can configure a different provider for embeddings than for chat completions. This is useful when your primary LLM provider does not offer embedding models.
+
+```typescript
+const agent = new Agent({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'openai/gpt-4o',
+  embeddingModel: 'openai/text-embedding-3-small',
+  // Optional: use a different API key / base URL for embeddings
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY!,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+  },
+});
+```
+
+<Info>
+If `embedding` is not specified, the agent uses the same `apiKey` and `baseUrl` as the primary LLM client for embedding requests.
+</Info>
+
+## Disabling Memory or Knowledge
+
+Either subsystem can be disabled independently:
+
+<CodeGroup>
+
+```typescript Disable memory
+const agent = new Agent({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'openai/gpt-4o',
+  memory: { enabled: false },
+});
+```
+
+```typescript Disable knowledge
+const agent = new Agent({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'openai/gpt-4o',
+  knowledge: { enabled: false },
+});
+```
+
+```typescript Disable both
+const agent = new Agent({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'openai/gpt-4o',
+  memory: { enabled: false },
+  knowledge: { enabled: false },
+});
+```
+
+</CodeGroup>
+
+<Warning>
+When memory is disabled, `agent.remember()` and `agent.recall()` will throw errors. When knowledge is disabled, `agent.ingestKnowledge()` will throw. Automatic extraction and RAG injection are also skipped.
+</Warning>
+
+## Context Pipeline Priority
+
+During each LLM turn, the agent assembles context from multiple sources. Each source has a priority that determines injection order (higher priority = injected first, closer to the system prompt):
+
+| Source | Priority | Description |
+|--------|----------|-------------|
+| **Skills** | 8 | Activated skill instructions and context |
+| **Knowledge** | 6 | RAG chunks retrieved by similarity search |
+| **Memory** | 4 | Relevant memories recalled for the current query |
+
+<Note>
+Higher-priority sources are placed earlier in the context window, ensuring they have the strongest influence on the LLM's response. If the context budget is tight, lower-priority sources may be truncated first.
+</Note>

@@ -65,10 +65,3 @@ export interface ChatResponse {
   finishReason: string;
   usage: TokenUsage;
 }
-
-/** @deprecated Use LLMMessage instead */
-export type OpenRouterMessage = LLMMessage;
-/** @deprecated Use LLMContentPart instead */
-export type OpenRouterContentPart = LLMContentPart;
-/** @deprecated Use LLMToolCall instead */
-export type OpenRouterToolCall = LLMToolCall;

@@ -1,0 +1,206 @@
+---
+title: "Providers LLM"
+description: "Configure diferentes provedores de LLM: OpenRouter, OpenAI, Azure, Groq e outros"
+---
+
+# Providers LLM
+
+O AgentX SDK funciona com **qualquer API compativel com o padrao OpenAI** (`/v1/chat/completions`). Isso inclui OpenRouter, OpenAI, Azure OpenAI, Groq, Together AI, Fireworks, e qualquer outro provedor que implemente a mesma interface.
+
+<Info>
+O SDK usa `fetch()` nativo do Node.js 22+ para todas as chamadas HTTP. Nao ha dependencia de SDKs especificos de provedores.
+</Info>
+
+## Variaveis de Ambiente
+
+O SDK reconhece as seguintes variaveis de ambiente (via `process.env`):
+
+| Variavel | Descricao | Exemplo |
+|----------|-----------|---------|
+| `LLM_API_KEY` | Chave de API para o provedor de chat | `sk-or-v1-xxx` |
+| `LLM_BASE_URL` | URL base da API de chat | `https://openrouter.ai/api/v1` |
+| `EMBEDDING_API_KEY` | Chave de API para embeddings (se diferente) | `sk-xxx` |
+| `EMBEDDING_BASE_URL` | URL base para embeddings (se diferente) | `https://api.openai.com/v1` |
+| `EMBEDDING_MODEL` | Modelo de embedding | `text-embedding-3-small` |
+
+## Cenarios de Configuracao
+
+<Tabs>
+  <Tab title="OpenRouter para tudo">
+    O cenario mais simples e o **default**. OpenRouter roteia para qualquer modelo e tambem oferece endpoints de embedding:
+
+    ```typescript
+    import { Agent } from 'agentx-sdk';
+
+    const agent = Agent.create({
+      apiKey: process.env.LLM_API_KEY!,
+      // baseUrl default: 'https://openrouter.ai/api/v1'
+      model: 'anthropic/claude-sonnet-4-20250514',
+      // embeddingModel default: 'openai/text-embedding-3-small'
+    });
+    ```
+
+    Neste cenario, tanto chat quanto embeddings passam pelo OpenRouter com a mesma API key.
+  </Tab>
+
+  <Tab title="OpenAI direta para tudo">
+    Para usar a API da OpenAI diretamente, mude `baseUrl` e `model`:
+
+    ```typescript
+    import { Agent } from 'agentx-sdk';
+
+    const agent = Agent.create({
+      apiKey: process.env.LLM_API_KEY!, // Chave da OpenAI (sk-xxx)
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      embeddingModel: 'text-embedding-3-small',
+    });
+    ```
+
+    Aqui tanto chat quanto embeddings usam a OpenAI diretamente.
+  </Tab>
+
+  <Tab title="Chat OpenRouter + Embeddings OpenAI">
+    O cenario mais comum em producao — use OpenRouter para chat (acesso a varios modelos) e OpenAI diretamente para embeddings (menor latencia, custo previsivel):
+
+    ```typescript
+    import { Agent } from 'agentx-sdk';
+
+    const agent = Agent.create({
+      // Chat via OpenRouter
+      apiKey: process.env.LLM_API_KEY!,
+      model: 'anthropic/claude-sonnet-4-20250514',
+      // baseUrl default: 'https://openrouter.ai/api/v1'
+
+      // Embeddings via OpenAI diretamente
+      embedding: {
+        apiKey: process.env.EMBEDDING_API_KEY,
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'text-embedding-3-small',
+      },
+    });
+    ```
+
+    <Note>
+    Quando `embedding.apiKey` ou `embedding.baseUrl` diferem do principal, o SDK cria um `LLMClient` separado para embeddings automaticamente.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Nomes de Modelo por Provider
+
+Cada provedor usa um formato diferente para nomes de modelo:
+
+| Provider | Formato | Exemplos |
+|----------|---------|----------|
+| **OpenRouter** | `provider/model-name` | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
+| **OpenAI** | `model-name` | `gpt-4o`, `gpt-4o-mini`, `o1-preview` |
+| **Azure OpenAI** | Nome do deployment | `my-gpt4o-deployment` |
+| **Groq** | `model-name` | `llama-3.1-70b-versatile`, `mixtral-8x7b-32768` |
+| **Together AI** | `org/model-name` | `meta-llama/Llama-3-70b-chat-hf` |
+
+<CodeGroup>
+
+```typescript OpenRouter
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  baseUrl: 'https://openrouter.ai/api/v1',
+  model: 'anthropic/claude-sonnet-4-20250514',
+});
+```
+
+```typescript OpenAI
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  baseUrl: 'https://api.openai.com/v1',
+  model: 'gpt-4o',
+});
+```
+
+```typescript Groq
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  baseUrl: 'https://api.groq.com/openai/v1',
+  model: 'llama-3.1-70b-versatile',
+});
+```
+
+```typescript Azure OpenAI
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  baseUrl: 'https://my-resource.openai.azure.com/openai/deployments/my-gpt4o',
+  model: 'my-gpt4o',
+});
+```
+
+```typescript Together AI
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  baseUrl: 'https://api.together.xyz/v1',
+  model: 'meta-llama/Llama-3-70b-chat-hf',
+});
+```
+
+</CodeGroup>
+
+## Classe LLMClient
+
+O SDK exporta a classe `LLMClient` para uso direto, caso voce precise fazer chamadas ao LLM fora do agente:
+
+```typescript
+import { LLMClient } from 'agentx-sdk';
+
+const client = new LLMClient({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  baseUrl: 'https://openrouter.ai/api/v1',
+});
+
+// Chat simples
+const response = await client.chat({
+  messages: [
+    { role: 'user', content: 'Ola!' },
+  ],
+});
+
+console.log(response.content);
+
+// Streaming
+const stream = client.streamChat({
+  messages: [
+    { role: 'user', content: 'Conte uma historia curta' },
+  ],
+});
+
+for await (const chunk of stream) {
+  if (chunk.type === 'content') {
+    process.stdout.write(chunk.content);
+  }
+}
+```
+
+<Warning>
+O `LLMClient` e de baixo nivel. Para a maioria dos casos, use `Agent.create()` que gerencia o client internamente junto com tools, memoria, knowledge e todo o ciclo do ReactLoop.
+</Warning>
+
+## Modelo Fallback
+
+Configure um modelo de fallback para recuperacao automatica quando o modelo principal falha:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  fallbackModel: 'openai/gpt-4o', // Usado se o modelo principal falhar
+});
+```
+
+Quando o fallback e ativado, o SDK emite um evento `model_fallback`:
+
+```typescript
+for await (const event of agent.stream('Ola')) {
+  if (event.type === 'model_fallback') {
+    console.log(`Fallback: ${event.from} -> ${event.to}`);
+  }
+}
+```

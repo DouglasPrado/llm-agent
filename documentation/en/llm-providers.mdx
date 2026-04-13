@@ -1,0 +1,187 @@
+---
+title: "LLM Providers"
+description: "Configure any OpenAI-compatible LLM provider"
+---
+
+# LLM Providers
+
+The SDK uses a generic `LLMClient` that works with any OpenAI-compatible API via native `fetch()`. There is no vendor lock-in — switch providers by changing a URL and API key.
+
+## Environment Variables
+
+| Variable | Description | Example |
+|---|---|---|
+| `LLM_API_KEY` | API key for the chat LLM provider | `sk-or-...` or `sk-...` |
+| `LLM_BASE_URL` | Base URL for the chat LLM API | `https://openrouter.ai/api/v1` |
+| `AGENT_MODEL` | Model identifier for chat | `anthropic/claude-sonnet-4-20250514` |
+| `EMBEDDING_API_KEY` | API key for the embedding provider | `sk-...` |
+| `EMBEDDING_BASE_URL` | Base URL for the embedding API | `https://api.openai.com/v1` |
+| `EMBEDDING_MODEL` | Model identifier for embeddings | `text-embedding-3-small` |
+
+## Configuration Scenarios
+
+<CodeGroup>
+```typescript OpenRouter (Default)
+import { Agent } from 'agentx-sdk';
+
+// OpenRouter is the default — just provide an API key
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  // baseUrl defaults to https://openrouter.ai/api/v1
+});
+```
+
+```typescript OpenAI Direct
+import { Agent } from 'agentx-sdk';
+
+// Point directly at OpenAI — no model prefix needed
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  baseUrl: 'https://api.openai.com/v1',
+  model: 'gpt-4o',
+});
+```
+
+```typescript Hybrid (OpenRouter + OpenAI Embeddings)
+import { Agent } from 'agentx-sdk';
+
+// Use OpenRouter for chat, OpenAI directly for embeddings
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  // baseUrl defaults to OpenRouter
+
+  embeddingModel: 'text-embedding-3-small',
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY!,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+  },
+});
+```
+</CodeGroup>
+
+## Model Naming
+
+Model identifiers differ depending on the provider:
+
+<Tabs>
+  <Tab title="OpenRouter">
+    OpenRouter uses a **provider/model** prefix format:
+
+    | Model | Identifier |
+    |---|---|
+    | Claude Sonnet 4 | `anthropic/claude-sonnet-4-20250514` |
+    | GPT-4o | `openai/gpt-4o` |
+    | Llama 3.1 70B | `meta-llama/llama-3.1-70b-instruct` |
+    | Gemini Pro 1.5 | `google/gemini-pro-1.5` |
+
+    OpenRouter routes to the actual provider behind the scenes. You get a unified API with access to all major models.
+  </Tab>
+  <Tab title="OpenAI Direct">
+    When using the OpenAI API directly, use the model name without a prefix:
+
+    | Model | Identifier |
+    |---|---|
+    | GPT-4o | `gpt-4o` |
+    | GPT-4o Mini | `gpt-4o-mini` |
+    | text-embedding-3-small | `text-embedding-3-small` |
+    | text-embedding-3-large | `text-embedding-3-large` |
+  </Tab>
+  <Tab title="Other Providers">
+    Any provider that exposes an OpenAI-compatible `/v1/chat/completions` endpoint works. Set `baseUrl` to point at it:
+
+    ```typescript
+    // Azure OpenAI
+    const agent = Agent.create({
+      apiKey: process.env.LLM_API_KEY!,
+      baseUrl: 'https://my-resource.openai.azure.com/openai/deployments/gpt-4o',
+      model: 'gpt-4o',
+    });
+
+    // Local model (e.g., Ollama)
+    const agent = Agent.create({
+      apiKey: 'ollama',
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'llama3.1',
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Embedding Provider
+
+The embedding provider can be configured separately from the chat provider. This is useful when you want to use a specialized embedding model (e.g., OpenAI's `text-embedding-3-small`) while using a different provider for chat.
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+
+  // Separate embedding configuration
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+  },
+});
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `embedding.apiKey` | `string` | Falls back to main `apiKey` | API key for the embedding provider |
+| `embedding.baseUrl` | `string` | Falls back to main `baseUrl` | Base URL for the embedding API |
+| `embedding.model` | `string` | Falls back to `embeddingModel` | Model identifier for embeddings |
+
+<Note>
+  When the `embedding` object is not specified, embedding requests use the same `apiKey` and `baseUrl` as chat requests. The default embedding model is `openai/text-embedding-3-small`.
+</Note>
+
+## Default Base URL
+
+The default `baseUrl` is `https://openrouter.ai/api/v1` for backward compatibility. If you are using a different provider, always set `baseUrl` explicitly.
+
+<Warning>
+  If you set `baseUrl` to a non-OpenRouter provider, make sure your model identifiers do not include the provider prefix (e.g., use `gpt-4o` instead of `openai/gpt-4o`).
+</Warning>
+
+## LLMClient Advanced Usage
+
+For advanced scenarios, you can import and use `LLMClient` directly:
+
+```typescript
+import { LLMClient } from 'agentx-sdk';
+
+const client = new LLMClient({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  baseUrl: 'https://openrouter.ai/api/v1',
+});
+
+// Streaming chat completion
+const stream = client.streamChat({
+  messages: [
+    { role: 'system', content: 'You are a helpful assistant.' },
+    { role: 'user', content: 'Hello!' },
+  ],
+});
+
+for await (const chunk of stream) {
+  // Process raw SSE chunks
+}
+
+// Non-streaming chat
+const response = await client.chat({
+  messages: [
+    { role: 'user', content: 'Summarize this text...' },
+  ],
+});
+
+// Generate embeddings
+const embeddings = await client.embed('Text to embed');
+```
+
+<Info>
+  The `LLMClient` uses native `fetch()` under the hood with no external HTTP libraries. It handles SSE parsing, error retries, and abort signals natively.
+</Info>

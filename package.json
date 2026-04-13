@@ -20,7 +20,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "docs:dev": "cd documentation && npx mintlify@latest dev",
+    "docs:build": "cd documentation && npx mintlify@latest build"
   },
   "engines": {
     "node": ">=22.0.0"

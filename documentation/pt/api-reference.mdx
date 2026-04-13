@@ -1,0 +1,669 @@
+---
+title: "Referencia de API"
+description: "Referencia completa de tipos, interfaces e metodos exportados pelo AgentX SDK"
+---
+
+# Referencia de API
+
+Referencia completa de todos os tipos, interfaces e metodos exportados pelo AgentX SDK.
+
+## Classe Agent
+
+A classe principal do SDK. Ponto de entrada para todas as interacoes.
+
+### Agent.create(config)
+
+Cria e valida uma instancia do agente.
+
+```typescript
+static create(input: AgentConfigInput): Agent
+```
+
+| Parametro | Tipo | Descricao |
+|-----------|------|-----------|
+| `input` | `AgentConfigInput` | Configuracao do agente (validada com Zod) |
+
+**Retorna:** `Agent`
+
+**Lanca:** `ZodError` se a configuracao for invalida.
+
+---
+
+### agent.stream(input, options?)
+
+API primaria de streaming. Retorna um iterador assincrono de eventos.
+
+```typescript
+async *stream(
+  input: string | ContentPart[],
+  options?: ChatOptions
+): AsyncIterableIterator<AgentEvent>
+```
+
+| Parametro | Tipo | Descricao |
+|-----------|------|-----------|
+| `input` | `string \| ContentPart[]` | Mensagem do usuario (texto ou multimodal) |
+| `options` | `ChatOptions` | Opcoes de execucao (opcional) |
+
+**Retorna:** `AsyncIterableIterator<AgentEvent>`
+
+---
+
+### agent.chat(input, options?)
+
+API simplificada. Consome `stream()` e retorna o texto final.
+
+```typescript
+async chat(
+  input: string | ContentPart[],
+  options?: ChatOptions
+): Promise<string>
+```
+
+**Retorna:** `Promise<string>` — texto completo da resposta.
+
+**Lanca:** `Error` se houver um erro irrecuperavel.
+
+---
+
+### agent.addTool(tool)
+
+Registra uma tool no agente.
+
+```typescript
+addTool(tool: AgentTool): void
+```
+
+---
+
+### agent.removeTool(name)
+
+Remove uma tool registrada.
+
+```typescript
+removeTool(name: string): boolean
+```
+
+**Retorna:** `true` se a tool existia e foi removida.
+
+---
+
+### agent.addSkill(skill)
+
+Registra uma skill no agente.
+
+```typescript
+addSkill(skill: AgentSkill): void
+```
+
+---
+
+### agent.removeSkill(name)
+
+Remove uma skill registrada.
+
+```typescript
+removeSkill(name: string): boolean
+```
+
+---
+
+### agent.loadSkillsDir(dir)
+
+Carrega skills de um diretorio contendo arquivos SKILL.md.
+
+```typescript
+async loadSkillsDir(dir: string): Promise<number>
+```
+
+**Retorna:** Numero de skills carregadas.
+
+---
+
+### agent.listSkills()
+
+Lista todas as skills registradas.
+
+```typescript
+listSkills(): AgentSkill[]
+```
+
+---
+
+### agent.activateSkillsForPaths(filePaths)
+
+Ativa skills condicionais cujos `paths` casam com os caminhos fornecidos.
+
+```typescript
+activateSkillsForPaths(filePaths: string[]): string[]
+```
+
+**Retorna:** Nomes das skills ativadas.
+
+---
+
+### agent.addTurnEndHook(hook)
+
+Registra um hook que roda apos cada turno do assistente.
+
+```typescript
+addTurnEndHook(hook: TurnEndHook): void
+```
+
+---
+
+### agent.fork(prompt, options?)
+
+Cria um agente filho que herda a config do pai, executa um chat isolado e retorna o resultado.
+
+```typescript
+async fork(
+  prompt: string,
+  options?: {
+    systemPrompt?: string;
+    model?: string;
+    tools?: AgentTool[];
+    background?: boolean;
+  }
+): Promise<string>
+```
+
+Se `background: true`, retorna `''` imediatamente (fire-and-forget).
+
+---
+
+### agent.connectMCP(config)
+
+Conecta a um servidor MCP.
+
+```typescript
+async connectMCP(config: MCPConnectionConfigInput): Promise<void>
+```
+
+---
+
+### agent.disconnectMCP(name)
+
+Desconecta de um servidor MCP.
+
+```typescript
+async disconnectMCP(name: string): Promise<void>
+```
+
+---
+
+### agent.getHealth()
+
+Retorna o status de saude das conexoes MCP.
+
+```typescript
+getHealth(): MCPHealthStatus
+```
+
+---
+
+### agent.remember(content, type?, threadId?)
+
+Salva uma memoria manualmente.
+
+```typescript
+async remember(
+  content: string,
+  type?: 'user' | 'feedback' | 'project' | 'reference',
+  threadId?: string
+): Promise<string>
+```
+
+**Retorna:** Nome do arquivo de memoria criado.
+
+---
+
+### agent.recall(query, threadId?)
+
+Busca memorias relevantes.
+
+```typescript
+async recall(
+  query: string,
+  threadId?: string
+): Promise<MemoryFile[]>
+```
+
+---
+
+### agent.ingestKnowledge(document)
+
+Ingere um documento para RAG.
+
+```typescript
+async ingestKnowledge(document: KnowledgeDocument): Promise<void>
+```
+
+---
+
+### agent.searchKnowledge(query)
+
+Busca chunks de knowledge por similaridade.
+
+```typescript
+async searchKnowledge(query: string): Promise<RetrievedKnowledge[]>
+```
+
+---
+
+### agent.getHistory(threadId?)
+
+Retorna o historico de mensagens de um thread.
+
+```typescript
+getHistory(threadId?: string): ChatMessage[]
+```
+
+---
+
+### agent.clearHistory(threadId?)
+
+Limpa o historico e skills sticky de um thread.
+
+```typescript
+clearHistory(threadId?: string): void
+```
+
+---
+
+### agent.getUsage()
+
+Retorna o acumulado de tokens usados na sessao.
+
+```typescript
+getUsage(): TokenUsage
+```
+
+---
+
+### agent.getEffectiveContextWindow()
+
+Retorna o tamanho efetivo da janela de contexto para o modelo atual.
+
+```typescript
+getEffectiveContextWindow(): number
+```
+
+---
+
+### agent.destroy()
+
+Destroi o agente, fechando conexoes MCP e o banco SQLite.
+
+```typescript
+async destroy(): Promise<void>
+```
+
+---
+
+## ChatOptions
+
+Opcoes passadas para `stream()` e `chat()`:
+
+```typescript
+interface ChatOptions {
+  threadId?: string;        // ID do thread (default: 'default')
+  model?: string;           // Override do modelo para esta execucao
+  temperature?: number;     // Temperatura para geracao
+  signal?: AbortSignal;     // Signal para cancelamento
+}
+```
+
+## AgentTool
+
+Interface para definir uma ferramenta:
+
+```typescript
+interface AgentTool {
+  name: string;
+  description: string;
+  parameters: ZodSchema;
+  execute: (
+    args: unknown,
+    signal: AbortSignal,
+    onProgress?: ToolProgressCallback,
+  ) => Promise<string | AgentToolResult>;
+
+  // Opcoes avancadas
+  validate?: (args: unknown, context: ToolValidationContext) => Promise<string | null>;
+  isConcurrencySafe?: boolean | ((args: unknown) => boolean);
+  isReadOnly?: boolean | ((args: unknown) => boolean);
+  isDestructive?: boolean | ((args: unknown) => boolean);
+  getFilePath?: (args: unknown) => string | string[] | undefined;
+  timeoutMs?: number;
+  maxResultChars?: number;
+  mapResult?: (result: AgentToolResult) => AgentToolResult;
+  retryable?: boolean | ((error: unknown) => boolean);
+  maxRetries?: number;
+}
+```
+
+## AgentToolResult
+
+Resultado retornado por uma tool:
+
+```typescript
+interface AgentToolResult {
+  content: string;
+  metadata?: Record<string, unknown>;
+  isError?: boolean;
+}
+```
+
+## AgentSkill
+
+Interface para definir uma skill:
+
+```typescript
+interface AgentSkill {
+  // Core
+  name: string;
+  description: string;
+  instructions: string;
+
+  // Matching
+  match?: (input: string, context: SkillMatchContext) => boolean;
+  triggerPrefix?: string;
+  aliases?: string[];
+  priority?: number;
+  exclusive?: boolean;
+
+  // Prompt
+  getPrompt?: (args: string, context: SkillPromptContext) => Promise<string> | string;
+  argNames?: string[];
+  whenToUse?: string;
+
+  // Execution
+  tools?: AgentTool[];
+  allowedTools?: string[];
+  model?: string;
+  context?: 'inline';
+  effort?: number;
+
+  // Session
+  sticky?: boolean | number;
+
+  // Activation
+  paths?: string[];
+  isEnabled?: () => boolean;
+  modelInvocable?: boolean;
+
+  // Metadata
+  source?: 'programmatic' | 'directory' | 'mcp' | 'bundled';
+  skillDir?: string;
+}
+```
+
+## AgentEvent
+
+Union type de todos os eventos de streaming:
+
+```typescript
+type AgentEvent =
+  | AgentStartEvent
+  | TextDeltaEvent
+  | TextDoneEvent
+  | ToolCallStartEvent
+  | ToolCallDeltaEvent
+  | ToolCallEndEvent
+  | ToolProgressEvent
+  | MemoryExtractedEvent
+  | KnowledgeRetrievedEvent
+  | SkillActivatedEvent
+  | TurnStartEvent
+  | TurnEndEvent
+  | ErrorEvent
+  | WarningEvent
+  | CompactionEvent
+  | RecoveryEvent
+  | ModelFallbackEvent
+  | AgentEndEvent;
+```
+
+Consulte a pagina de [Eventos](/pt/events) para a shape completa de cada evento.
+
+## Tipos de Dados
+
+### TokenUsage
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+```
+
+### KnowledgeDocument
+
+```typescript
+interface KnowledgeDocument {
+  content: string;
+  metadata?: Record<string, unknown>;
+}
+```
+
+### KnowledgeChunk
+
+```typescript
+interface KnowledgeChunk {
+  id: string;
+  content: string;
+  embedding: Float32Array;
+  metadata?: Record<string, unknown>;
+  createdAt: number;
+}
+```
+
+### RetrievedKnowledge
+
+```typescript
+interface RetrievedKnowledge {
+  id: string;
+  content: string;
+  score: number;
+  metadata?: Record<string, unknown>;
+}
+```
+
+### ContentPart
+
+```typescript
+type ContentPart = TextContentPart | ImageContentPart;
+
+interface TextContentPart {
+  type: 'text';
+  text: string;
+}
+
+interface ImageContentPart {
+  type: 'image_url';
+  image_url: { url: string };
+}
+```
+
+### ChatMessage
+
+```typescript
+interface ChatMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string | ContentPart[];
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+  createdAt: number;
+}
+```
+
+### ToolCall
+
+```typescript
+interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+```
+
+## Interfaces de Stores
+
+### VectorStore
+
+```typescript
+interface VectorStore {
+  upsert(chunk: KnowledgeChunk): void;
+  search(queryEmbedding: Float32Array, topK: number): RetrievedKnowledge[];
+  delete(id: string): void;
+  listAll(): KnowledgeChunk[];
+  deleteBySource(sourceId: string): void;
+}
+```
+
+### ConversationStore
+
+```typescript
+interface ConversationStore {
+  appendMessage(message: ChatMessage, threadId: string): void;
+  listThread(threadId: string): ChatMessage[];
+  listPinned(threadId: string): ChatMessage[];
+  clearThread(threadId: string): void;
+}
+```
+
+## Tipos MCP
+
+### MCPConnectionConfigInput
+
+```typescript
+interface MCPConnectionConfigInput {
+  name: string;
+  transport: 'stdio' | 'sse' | 'http' | 'auto';
+  command?: string;
+  args?: string[];
+  url?: string;
+  headers?: Record<string, string>;
+  timeout?: number;       // default: 30000
+  maxRetries?: number;    // default: 3
+  healthCheckInterval?: number;  // default: 60000
+  isolateErrors?: boolean;       // default: true
+}
+```
+
+## Exports Utilitarios
+
+### LLMClient
+
+Cliente HTTP para APIs compativeis com OpenAI:
+
+```typescript
+import { LLMClient } from 'agentx-sdk';
+
+const client = new LLMClient({
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+});
+```
+
+### Builtin Tools
+
+```typescript
+import { builtinTools, createGlobTool, createGrepTool, createFileReadTool,
+  createFileWriteTool, createFileEditTool, createBashTool, createWebFetchTool,
+  createAskUserTool } from 'agentx-sdk';
+```
+
+### SQL Tools
+
+```typescript
+import { createSqlTools } from 'agentx-sdk';
+import type { SqlToolFactoryOptions, SqlQueryRunner, SqlQueryDef } from 'agentx-sdk';
+```
+
+### Utilitarios
+
+```typescript
+import { createLogger, LRUCache, retry, estimateTokens, getModelContextWindow } from 'agentx-sdk';
+```
+
+### Skills
+
+```typescript
+import { SkillManager, createSkillTool, SKILL_TOOL_NAME,
+  scanSkillFiles, loadSkillFile, parseSkillFrontmatter,
+  substituteArgs, matchGlob, matchAnyGlob } from 'agentx-sdk';
+```
+
+### MCP
+
+```typescript
+import { MCPAdapter } from 'agentx-sdk';
+import type { MCPHealthStatus, MCPResource, MCPPromptInfo, MCPConnectionInfo } from 'agentx-sdk';
+```
+
+### Outros
+
+```typescript
+import { normalizeMessagesForAPI, PromptSectionCache, analyzeContext,
+  buildToolUsagePrompt, buildEnvironmentPrompt, runTurnEndHooks } from 'agentx-sdk';
+```
+
+## Enums e Constantes
+
+### MessageRole
+
+```typescript
+type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
+```
+
+### MemoryType
+
+```typescript
+type MemoryType = 'user' | 'feedback' | 'project' | 'reference';
+```
+
+### ReactLoopState
+
+```typescript
+type ReactLoopState = 'idle' | 'streaming' | 'executing_tools' | 'completed'
+  | 'error' | 'cost_limited' | 'aborted';
+```
+
+### AgentSessionState
+
+```typescript
+type AgentSessionState = 'initializing' | 'ready' | 'executing'
+  | 'cost_exhausted' | 'destroying' | 'destroyed';
+```
+
+### MCPConnectionState
+
+```typescript
+type MCPConnectionState = 'disconnected' | 'connecting' | 'connected'
+  | 'error' | 'reconnecting';
+```
+
+### OnToolError
+
+```typescript
+type OnToolError = 'continue' | 'stop' | 'retry';
+```
+
+### OnLimitReached
+
+```typescript
+type OnLimitReached = 'stop' | 'warn';
+```
+
+### LogLevel
+
+```typescript
+type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
+```

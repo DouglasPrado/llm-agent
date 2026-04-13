@@ -1,0 +1,96 @@
+---
+title: "Introducao ao AgentX SDK"
+description: "Biblioteca TypeScript standalone para construir agentes de IA com streaming, tools, memoria, knowledge/RAG e skills"
+---
+
+# AgentX SDK
+
+O AgentX SDK e uma biblioteca TypeScript **standalone** e **in-process** para construir agentes de IA conversacionais. Ele oferece uma arquitetura completa para criar agentes inteligentes com streaming em tempo real, execucao de ferramentas, memoria persistente, busca por conhecimento (RAG) e sistema de skills modulares.
+
+<Note>
+O AgentX SDK funciona com **qualquer API compativel com OpenAI** — incluindo OpenRouter, OpenAI direta, Azure OpenAI, Groq, Together AI, e outros provedores.
+</Note>
+
+## Funcionalidades Principais
+
+<CardGroup cols={2}>
+  <Card title="Streaming-First" icon="bolt">
+    `stream()` e a API primaria. Receba eventos em tempo real conforme o agente pensa, chama tools e gera respostas. `chat()` e um wrapper de conveniencia.
+  </Card>
+  <Card title="Tools (Function Calling)" icon="wrench">
+    Defina ferramentas com schemas Zod. O agente decide quando usa-las via function calling. Suporte a validacao semantica, execucao paralela e cancelamento.
+  </Card>
+  <Card title="Memoria Persistente" icon="brain">
+    Sistema de memoria baseado em arquivos com extracao automatica de fatos de conversas. Categorias: user, feedback, project, reference.
+  </Card>
+  <Card title="Knowledge / RAG" icon="book">
+    Ingira documentos, gere embeddings e faca busca por similaridade automaticamente injetada no contexto do chat.
+  </Card>
+  <Card title="Skills" icon="puzzle-piece">
+    Sistema modular de comportamentos: skills podem ser ativadas por prefixo, matching semantico ou padroes de arquivo. Suporte a arquivos SKILL.md.
+  </Card>
+  <Card title="MCP (Model Context Protocol)" icon="plug">
+    Conecte servidores MCP via stdio, SSE ou HTTP. Tools externas sao registradas automaticamente no agente.
+  </Card>
+</CardGroup>
+
+## Arquitetura
+
+O SDK segue uma arquitetura em camadas com interfaces plugaveis:
+
+```
++------------------------------------------------------+
+|                    Public API                         |
+|   Agent.create() → stream() / chat() / addTool()     |
++------------------------------------------------------+
+|                    Core Layer                         |
+|   ReactLoop → ContextBuilder → ConversationManager    |
++------------------------------------------------------+
+|                  Domain Layer                          |
+|   ToolExecutor  MemorySystem  KnowledgeManager        |
+|   SkillManager  MCPAdapter    EmbeddingService         |
++------------------------------------------------------+
+|               Infrastructure Layer                    |
+|   LLMClient   SQLiteDatabase   FileSystem             |
+|   (fetch)     (better-sqlite3) (node:fs)              |
++------------------------------------------------------+
+```
+
+**Fluxo principal (ReactLoop):**
+
+1. Usuario envia mensagem via `stream()` ou `chat()`
+2. Context pipeline monta o prompt: system prompt + memoria + knowledge + skills + historico
+3. LLM gera resposta (streaming)
+4. Se houver tool calls, o agente executa e reenvia resultados ao LLM
+5. Ciclo repete ate o LLM responder sem tool calls ou atingir limites
+6. Eventos sao emitidos durante todo o processo
+
+## Stack Tecnologica
+
+| Camada | Tecnologia | Versao |
+|--------|-----------|--------|
+| Linguagem | TypeScript | 5.x |
+| Runtime | Node.js | 22+ |
+| Validacao | Zod | 3.x |
+| Persistencia | better-sqlite3 + SQLite | 3.x |
+| Contratos de tools | zod-to-json-schema | 3.x |
+
+<Info>
+O SDK mantem no maximo **4 dependencias diretas** em producao. HTTP e feito via `fetch()` nativo do Node.js 22+ — sem axios, sem SDKs de LLM.
+</Info>
+
+## Principios de Design
+
+- **Dependencias minimas** — apenas Zod, better-sqlite3 e zod-to-json-schema
+- **Streaming first** — `stream()` e a API primaria; `chat()` consome `stream()` internamente
+- **Interfaces plugaveis** — `VectorStore`, `ConversationStore` sao interfaces; SQLite e o default
+- **Falhe explicitamente, recupere graciosamente** — retry com backoff, fallback de modelo, erros com traceId
+- **Isolamento por design** — mutex por thread, timeout por tool, traceId por execucao
+- **Custo como constraint** — `CostPolicy` com limites por execucao e sessao
+- **Observabilidade embutida** — eventos com traceId e duration
+
+## Proximo Passo
+
+<Card title="Inicio Rapido" icon="rocket" href="/pt/getting-started">
+  Instale o SDK e crie seu primeiro agente em 5 minutos.
+</Card>

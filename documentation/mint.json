@@ -1,0 +1,85 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "AgentX SDK",
+  "logo": {
+    "dark": "/images/logo-dark.svg",
+    "light": "/images/logo-light.svg"
+  },
+  "favicon": "/images/favicon.svg",
+  "colors": {
+    "primary": "#6366F1",
+    "light": "#818CF8",
+    "dark": "#4F46E5",
+    "anchors": {
+      "from": "#6366F1",
+      "to": "#8B5CF6"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/douglasprado/agentx-sdk"
+    }
+  ],
+  "tabs": [
+    {
+      "name": "English",
+      "url": "en"
+    },
+    {
+      "name": "Portugues",
+      "url": "pt"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "en/introduction",
+        "en/getting-started",
+        "en/configuration",
+        "en/llm-providers"
+      ]
+    },
+    {
+      "group": "Core Features",
+      "pages": [
+        "en/tools",
+        "en/memory-knowledge",
+        "en/skills",
+        "en/mcp",
+        "en/events"
+      ]
+    },
+    {
+      "group": "Advanced",
+      "pages": ["en/custom-stores", "en/api-reference"]
+    },
+    {
+      "group": "Inicio",
+      "pages": [
+        "pt/introduction",
+        "pt/getting-started",
+        "pt/configuration",
+        "pt/llm-providers"
+      ]
+    },
+    {
+      "group": "Funcionalidades",
+      "pages": [
+        "pt/tools",
+        "pt/memory-knowledge",
+        "pt/skills",
+        "pt/mcp",
+        "pt/events"
+      ]
+    },
+    {
+      "group": "Avancado",
+      "pages": ["pt/custom-stores", "pt/api-reference"]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/douglasprado/agentx-sdk"
+  }
+}

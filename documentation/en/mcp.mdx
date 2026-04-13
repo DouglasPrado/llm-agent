@@ -1,0 +1,348 @@
+---
+title: "MCP Integration"
+description: "Connect external tool servers via Model Context Protocol"
+---
+
+The Model Context Protocol (MCP) lets your agent discover and use tools from external servers. AgentX SDK handles connection, discovery, conversion, and fault isolation automatically.
+
+## Prerequisites
+
+Install the MCP SDK as a peer dependency:
+
+```bash
+npm install @modelcontextprotocol/sdk
+```
+
+<Note>
+  The MCP SDK is dynamically imported at runtime. If it is not installed, connecting to an MCP server will throw a descriptive error.
+</Note>
+
+## Transports
+
+AgentX supports three transport types for connecting to MCP servers.
+
+<CodeGroup>
+
+```typescript stdio
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  mcp: [
+    {
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/home/user/projects'],
+    },
+  ],
+});
+```
+
+```typescript SSE
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  mcp: [
+    {
+      name: 'remote-tools',
+      transport: 'sse',
+      url: 'https://mcp.example.com/sse',
+      headers: {
+        Authorization: 'Bearer my-token',
+      },
+    },
+  ],
+});
+```
+
+```typescript HTTP (Streamable)
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  mcp: [
+    {
+      name: 'api-tools',
+      transport: 'http',
+      url: 'https://mcp.example.com/http',
+      headers: {
+        'X-API-Key': 'my-api-key',
+      },
+    },
+  ],
+});
+```
+
+</CodeGroup>
+
+<Tip>
+  Set `transport: 'auto'` to let AgentX auto-detect the correct protocol. It tries StreamableHTTP first, then falls back to SSE.
+</Tip>
+
+## Via Config
+
+Pass MCP server configurations in the `mcp` array when creating your agent:
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  mcp: [
+    {
+      name: 'github',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      timeout: 15_000,
+    },
+    {
+      name: 'database',
+      transport: 'http',
+      url: 'https://db-tools.internal/mcp',
+      headers: { Authorization: `Bearer ${process.env.DB_TOKEN}` },
+      healthCheckInterval: 30_000,
+    },
+  ],
+});
+```
+
+You can also connect at runtime:
+
+```typescript
+await agent.connectMCP({
+  name: 'slack',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-slack'],
+});
+```
+
+## How It Works
+
+MCP integration follows a four-step lifecycle:
+
+<Steps>
+  <Step title="Connect">
+    AgentX establishes a connection using the configured transport (stdio, SSE, or HTTP).
+  </Step>
+  <Step title="Discover">
+    The adapter calls `listTools()` on the MCP server to retrieve all available tool definitions.
+  </Step>
+  <Step title="Convert">
+    Each MCP tool is converted into an `AgentTool` with its JSON Schema parameters transformed to Zod schemas.
+  </Step>
+  <Step title="Register">
+    Converted tools are registered in the agent's tool executor, making them available to the LLM.
+  </Step>
+</Steps>
+
+## Tool Naming
+
+MCP tools are namespaced to avoid collisions with local tools and tools from other servers:
+
+```
+mcp__{server}__{tool}
+```
+
+For example, a tool named `read_file` from a server named `filesystem` becomes:
+
+```
+mcp__filesystem__read_file
+```
+
+The LLM sees and calls tools using these namespaced names. The adapter transparently routes calls back to the correct server.
+
+## Config Reference
+
+<ParamField path="name" type="string" required>
+  Unique identifier for the MCP server connection.
+</ParamField>
+
+<ParamField path="transport" type="'stdio' | 'sse' | 'http' | 'auto'" required>
+  Connection transport type. Use `'auto'` for URL-based servers to auto-detect.
+</ParamField>
+
+<ParamField path="command" type="string">
+  Executable command for `stdio` transport (e.g., `"npx"`, `"node"`).
+</ParamField>
+
+<ParamField path="args" type="string[]">
+  Arguments passed to the `command` for `stdio` transport.
+</ParamField>
+
+<ParamField path="url" type="string">
+  Server URL for `sse`, `http`, or `auto` transport.
+</ParamField>
+
+<ParamField path="headers" type="Record<string, string>">
+  HTTP headers sent with `sse`, `http`, or `auto` connections (e.g., authentication tokens).
+</ParamField>
+
+<ParamField path="timeout" type="number" default={30000}>
+  Per-tool call timeout in milliseconds.
+</ParamField>
+
+<ParamField path="maxRetries" type="number" default={3}>
+  Number of reconnection attempts on server failure.
+</ParamField>
+
+<ParamField path="healthCheckInterval" type="number" default={60000}>
+  Interval in milliseconds between health check pings. Set to `0` to disable.
+</ParamField>
+
+<ParamField path="isolateErrors" type="boolean" default={true}>
+  When `true`, tool errors return error results instead of throwing exceptions.
+</ParamField>
+
+## Disconnecting
+
+Disconnect a specific server by name, or let the agent clean up all connections on destroy.
+
+```typescript
+// Disconnect a single server
+await agent.disconnectMCP('github');
+
+// All connections are automatically closed on agent.destroy()
+await agent.destroy();
+```
+
+When a server is disconnected, all its tools are unregistered from the executor and the health check timer is cleared.
+
+## Health Monitoring
+
+Monitor the status of all connected MCP servers:
+
+```typescript
+const health = agent.getHealth();
+
+for (const server of health.servers) {
+  console.log(`${server.name}: ${server.status} (${server.toolCount} tools, uptime: ${server.uptime}ms)`);
+  if (server.lastError) {
+    console.warn(`  Last error: ${server.lastError}`);
+  }
+}
+```
+
+### Status Values
+
+| Status | Description |
+|---|---|
+| `connected` | Server is healthy and responding to requests |
+| `disconnected` | Server has been disconnected or failed all reconnection attempts |
+| `error` | Health check detected a failure; reconnection is pending |
+| `reconnecting` | Actively attempting to re-establish the connection |
+
+Health checks run at the configured `healthCheckInterval`. When a check fails, the adapter automatically attempts reconnection with exponential backoff (up to `maxRetries` attempts).
+
+## Fault Isolation
+
+MCP tools are isolated by default. Errors from one server do not affect other servers or local tools.
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  mcp: [
+    {
+      name: 'unstable-server',
+      transport: 'http',
+      url: 'https://unstable.example.com/mcp',
+      isolateErrors: true, // default
+      timeout: 10_000,
+      maxRetries: 5,
+    },
+  ],
+});
+```
+
+When `isolateErrors` is `true` (the default):
+
+- Tool execution errors return an error result to the LLM instead of crashing the agent loop
+- The LLM sees the error message and can decide to retry or use an alternative approach
+- Server recovery happens automatically via health checks and reconnection
+
+When `isolateErrors` is `false`, tool errors propagate as exceptions through the agent loop.
+
+<Warning>
+  Setting `isolateErrors: false` means a single MCP server failure can halt your entire agent execution. Only disable isolation when you need strict error propagation.
+</Warning>
+
+## Prompts as Skills
+
+MCP servers that expose prompts have them auto-registered as skills. The adapter discovers prompts during connection and creates corresponding skill entries that the agent can invoke.
+
+```typescript
+// After connecting to a server that exposes prompts:
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  mcp: [
+    {
+      name: 'templates',
+      transport: 'stdio',
+      command: 'node',
+      args: ['./mcp-prompt-server.js'],
+    },
+  ],
+});
+
+// MCP prompts are available via the adapter
+const prompts = agent.getHealth(); // Prompts are tracked alongside tools
+```
+
+Prompt arguments are parsed from the user input as `key=value` pairs:
+
+```
+/prompt-name arg1=value1 arg2=value2
+```
+
+## Resources
+
+MCP servers can expose resources (files, data, configurations) that your agent can read.
+
+```typescript
+// List available resources from a server
+const resources = await agent.listResources?.('filesystem');
+
+for (const resource of resources) {
+  console.log(`${resource.name} (${resource.mimeType}): ${resource.uri}`);
+}
+
+// Read a specific resource
+const content = await agent.readResource?.('filesystem', 'file:///path/to/config.json');
+console.log(content);
+```
+
+Each resource includes:
+
+| Field | Type | Description |
+|---|---|---|
+| `uri` | `string` | Unique resource identifier |
+| `name` | `string` | Human-readable resource name |
+| `mimeType` | `string?` | Content type of the resource |
+| `description` | `string?` | Optional description |
+| `serverName` | `string` | The MCP server that provides this resource |
+
+## Tool Annotations
+
+MCP tools can include annotations that describe their behavior. AgentX maps these to `AgentTool` properties:
+
+| MCP Annotation | AgentTool Property | Description |
+|---|---|---|
+| `readOnlyHint` | `isReadOnly` | Tool only reads data, does not modify state |
+| `destructiveHint` | `isDestructive` | Tool may delete or irreversibly modify data |
+
+```typescript
+// MCP tool with annotations:
+// {
+//   name: "delete_file",
+//   annotations: { readOnlyHint: false, destructiveHint: true }
+// }
+//
+// Becomes an AgentTool with:
+// { isReadOnly: false, isDestructive: true }
+```
+
+Read-only tools (`readOnlyHint: true`) are automatically marked as concurrency-safe (`isConcurrencySafe: true`), enabling parallel execution when multiple tool calls are requested.

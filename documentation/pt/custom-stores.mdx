@@ -1,0 +1,310 @@
+---
+title: "Stores Plugaveis"
+description: "Implemente stores customizados para conversas, vetores e memoria no AgentX SDK"
+---
+
+# Stores Plugaveis
+
+O AgentX SDK usa interfaces para todas as camadas de persistencia. As implementacoes default usam SQLite, mas voce pode substituir por qualquer backend: PostgreSQL, Redis, Pinecone, Weaviate, etc.
+
+## Interfaces
+
+O SDK define tres interfaces principais para persistencia:
+
+### ConversationStore
+
+Persiste o historico de conversas por thread:
+
+```typescript
+interface ConversationStore {
+  /** Adiciona uma mensagem ao thread */
+  appendMessage(message: ChatMessage, threadId: string): void;
+
+  /** Lista todas as mensagens de um thread */
+  listThread(threadId: string): ChatMessage[];
+
+  /** Lista mensagens fixas (pinned) de um thread */
+  listPinned(threadId: string): ChatMessage[];
+
+  /** Limpa todas as mensagens de um thread */
+  clearThread(threadId: string): void;
+}
+```
+
+Onde `ChatMessage` e:
+
+```typescript
+interface ChatMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string | ContentPart[];
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+  createdAt: number;
+}
+```
+
+### VectorStore
+
+Armazena e busca chunks de documentos com embeddings:
+
+```typescript
+interface VectorStore {
+  /** Insere ou atualiza um chunk */
+  upsert(chunk: KnowledgeChunk): void;
+
+  /** Busca chunks por similaridade com o embedding da query */
+  search(queryEmbedding: Float32Array, topK: number): RetrievedKnowledge[];
+
+  /** Remove um chunk por ID */
+  delete(id: string): void;
+
+  /** Lista todos os chunks */
+  listAll(): KnowledgeChunk[];
+
+  /** Remove todos os chunks de um source */
+  deleteBySource(sourceId: string): void;
+}
+```
+
+Onde os tipos sao:
+
+```typescript
+interface KnowledgeChunk {
+  id: string;
+  content: string;
+  embedding: Float32Array;
+  metadata?: Record<string, unknown>;
+  createdAt: number;
+}
+
+interface RetrievedKnowledge {
+  id: string;
+  content: string;
+  score: number;
+  metadata?: Record<string, unknown>;
+}
+```
+
+## Exemplos de Implementacao
+
+<Tabs>
+  <Tab title="ConversationStore com Redis">
+    ```typescript
+    import type { ConversationStore, ChatMessage } from 'agentx-sdk';
+    import Redis from 'ioredis';
+
+    export class RedisConversationStore implements ConversationStore {
+      private redis: Redis;
+
+      constructor(redisUrl: string) {
+        this.redis = new Redis(redisUrl);
+      }
+
+      appendMessage(message: ChatMessage, threadId: string): void {
+        const key = `thread:${threadId}:messages`;
+        this.redis.rpush(key, JSON.stringify(message));
+      }
+
+      listThread(threadId: string): ChatMessage[] {
+        // Nota: ioredis retorna Promise, mas a interface e sincrona.
+        // Use uma abordagem sincrona ou adapte conforme necessario.
+        throw new Error('Use async wrapper');
+      }
+
+      listPinned(threadId: string): ChatMessage[] {
+        return []; // Implemente conforme necessario
+      }
+
+      clearThread(threadId: string): void {
+        this.redis.del(`thread:${threadId}:messages`);
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="VectorStore com Pinecone">
+    ```typescript
+    import type { VectorStore, KnowledgeChunk, RetrievedKnowledge } from 'agentx-sdk';
+    import { Pinecone } from '@pinecone-database/pinecone';
+
+    export class PineconeVectorStore implements VectorStore {
+      private index;
+
+      constructor(apiKey: string, indexName: string) {
+        const pc = new Pinecone({ apiKey });
+        this.index = pc.index(indexName);
+      }
+
+      upsert(chunk: KnowledgeChunk): void {
+        this.index.upsert([{
+          id: chunk.id,
+          values: Array.from(chunk.embedding),
+          metadata: {
+            content: chunk.content,
+            ...chunk.metadata,
+            createdAt: chunk.createdAt,
+          },
+        }]);
+      }
+
+      search(queryEmbedding: Float32Array, topK: number): RetrievedKnowledge[] {
+        // Nota: Pinecone retorna Promise — adapte com wrapper sincrono
+        throw new Error('Use async wrapper');
+      }
+
+      delete(id: string): void {
+        this.index.deleteOne(id);
+      }
+
+      listAll(): KnowledgeChunk[] {
+        return []; // Pinecone nao suporta listagem completa eficiente
+      }
+
+      deleteBySource(sourceId: string): void {
+        this.index.deleteMany({ source: sourceId });
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Usando Stores SQLite Built-in
+
+O SDK inclui implementacoes SQLite prontas para uso:
+
+```typescript
+import {
+  Agent,
+  SQLiteDatabase,
+  SQLiteConversationStore,
+  SQLiteVectorStore,
+} from 'agentx-sdk';
+
+// Usar o banco padrao (automatico)
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  dbPath: '~/.agent/data.db',  // Path do SQLite
+});
+
+// Ou criar stores manualmente
+const db = new SQLiteDatabase('./my-data.db');
+db.initialize();
+
+const conversationStore = new SQLiteConversationStore(db);
+const vectorStore = new SQLiteVectorStore(db);
+
+const agent2 = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  conversation: { store: conversationStore },
+  knowledge: { store: vectorStore },
+});
+```
+
+## Testes com Mocks
+
+Para testes unitarios, use implementacoes in-memory:
+
+```typescript
+import type { ConversationStore, VectorStore, ChatMessage, KnowledgeChunk, RetrievedKnowledge } from 'agentx-sdk';
+
+// Mock de ConversationStore
+class InMemoryConversationStore implements ConversationStore {
+  private threads = new Map<string, ChatMessage[]>();
+
+  appendMessage(message: ChatMessage, threadId: string): void {
+    const messages = this.threads.get(threadId) ?? [];
+    messages.push(message);
+    this.threads.set(threadId, messages);
+  }
+
+  listThread(threadId: string): ChatMessage[] {
+    return this.threads.get(threadId) ?? [];
+  }
+
+  listPinned(threadId: string): ChatMessage[] {
+    return [];
+  }
+
+  clearThread(threadId: string): void {
+    this.threads.delete(threadId);
+  }
+}
+
+// Mock de VectorStore
+class InMemoryVectorStore implements VectorStore {
+  private chunks = new Map<string, KnowledgeChunk>();
+
+  upsert(chunk: KnowledgeChunk): void {
+    this.chunks.set(chunk.id, chunk);
+  }
+
+  search(queryEmbedding: Float32Array, topK: number): RetrievedKnowledge[] {
+    // Busca por similaridade cosseno simplificada
+    const results = Array.from(this.chunks.values())
+      .map(chunk => ({
+        id: chunk.id,
+        content: chunk.content,
+        score: cosineSimilarity(queryEmbedding, chunk.embedding),
+        metadata: chunk.metadata,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK);
+
+    return results;
+  }
+
+  delete(id: string): void {
+    this.chunks.delete(id);
+  }
+
+  listAll(): KnowledgeChunk[] {
+    return Array.from(this.chunks.values());
+  }
+
+  deleteBySource(sourceId: string): void {
+    for (const [id, chunk] of this.chunks) {
+      if (chunk.metadata?.sourceId === sourceId) {
+        this.chunks.delete(id);
+      }
+    }
+  }
+}
+
+function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    normA += a[i]! * a[i]!;
+    normB += b[i]! * b[i]!;
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+```
+
+Uso em testes:
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: 'test-key',
+  baseUrl: 'http://localhost:8080/v1', // Mock server
+  conversation: { store: new InMemoryConversationStore() },
+  knowledge: { store: new InMemoryVectorStore() },
+  memory: { enabled: false },
+});
+```
+
+## Quando Usar Stores Customizados
+
+| Cenario | Recomendacao |
+|---------|-------------|
+| Desenvolvimento local / prototipacao | Use SQLite default |
+| Producao com multiplas instancias | Use store compartilhado (PostgreSQL, Redis) |
+| Knowledge com muitos vetores | Use vector DB dedicado (Pinecone, Weaviate) |
+| Testes unitarios | Use mocks in-memory |
+| Serverless / edge | Use store externo (os arquivos SQLite nao persistem) |
+
+<Info>
+As interfaces sao **sincronas** no design atual. Se seu backend requer operacoes async, voce precisara de um wrapper que faca pre-fetch ou use buffers. Isso e intencional para manter o hot path do ReactLoop rapido.
+</Info>

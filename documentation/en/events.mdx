@@ -1,0 +1,421 @@
+---
+title: "Streaming Events"
+description: "Real-time observation of agent behavior"
+---
+
+# Streaming Events
+
+AgentX SDK is **streaming-first**. Every interaction emits a sequence of typed `AgentEvent` objects that let you observe, log, and react to agent behavior in real time.
+
+## Event Flow
+
+### Simple Text Response
+
+When the agent responds with plain text and no tool calls, the event sequence is linear:
+
+```
+agent_start -> turn_start -> text_delta* -> text_done -> turn_end -> agent_end
+```
+
+```typescript
+import { Agent } from "agentx-sdk";
+
+const agent = Agent.create({
+  llmApiKey: process.env.LLM_API_KEY!,
+  model: "openai/gpt-4o",
+});
+
+for await (const event of agent.stream("What is TypeScript?")) {
+  console.log(event.type);
+}
+
+// Output:
+// agent_start
+// turn_start
+// text_delta
+// text_delta
+// ...
+// text_done
+// turn_end
+// agent_end
+```
+
+### Response with Tool Calls
+
+When the agent invokes tools, the flow includes multiple turns. The agent calls tools in turn 0, then produces a final text response in turn 1:
+
+```
+agent_start -> turn_start(0) -> tool_call_start -> tool_call_end -> turn_end(0)
+            -> turn_start(1) -> text_delta* -> text_done -> turn_end(1)
+            -> agent_end
+```
+
+<Note>
+Each iteration of the ReAct loop produces a `turn_start` / `turn_end` pair. Tool calls and text generation happen in separate turns.
+</Note>
+
+---
+
+## All Event Types
+
+Every event extends a base shape with a `type` discriminator. Below is the full catalog.
+
+### agent_start
+
+Emitted once at the beginning of every `stream()` or `chat()` call.
+
+```typescript
+{
+  type: "agent_start";
+  traceId: string;    // Unique execution identifier
+  threadId: string;   // Conversation thread
+  model: string;      // LLM model used (e.g. "openai/gpt-4o")
+}
+```
+
+### text_delta
+
+Emitted for each chunk of streamed text from the LLM.
+
+```typescript
+{
+  type: "text_delta";
+  content: string;    // Partial text chunk
+}
+```
+
+### text_done
+
+Emitted when the full text response for the current turn is complete.
+
+```typescript
+{
+  type: "text_done";
+  content: string;    // Full concatenated text
+}
+```
+
+### tool_call_start
+
+Emitted when the LLM initiates a tool call.
+
+```typescript
+{
+  type: "tool_call_start";
+  toolCall: {
+    id: string;
+    type: "function";
+    function: {
+      name: string;
+      arguments: string;   // JSON string of arguments
+    };
+  };
+}
+```
+
+### tool_call_delta
+
+Emitted as tool call arguments are streamed incrementally.
+
+```typescript
+{
+  type: "tool_call_delta";
+  toolCallId: string;
+  argumentsDelta: string;   // Partial JSON arguments chunk
+}
+```
+
+### tool_call_end
+
+Emitted when a tool finishes execution.
+
+```typescript
+{
+  type: "tool_call_end";
+  toolCallId: string;
+  result: unknown;     // The tool's return value
+  duration: number;    // Execution time in milliseconds
+}
+```
+
+### memory_extracted
+
+Emitted when the memory subsystem extracts a fact from the conversation.
+
+```typescript
+{
+  type: "memory_extracted";
+  memoryId: string;
+  content: string;     // The extracted memory text
+}
+```
+
+### knowledge_retrieved
+
+Emitted when the RAG pipeline retrieves relevant knowledge chunks.
+
+```typescript
+{
+  type: "knowledge_retrieved";
+  chunks: Array<{ id: string; content: string; score: number }>;
+  topScore: number;    // Highest relevance score
+}
+```
+
+### skill_activated
+
+Emitted when a skill matches the user's input and is activated.
+
+```typescript
+{
+  type: "skill_activated";
+  skillName: string;   // Name of the activated skill
+}
+```
+
+### turn_start
+
+Emitted at the beginning of each ReAct loop iteration.
+
+```typescript
+{
+  type: "turn_start";
+  iteration: number;   // Zero-based iteration index
+}
+```
+
+### turn_end
+
+Emitted at the end of each ReAct loop iteration.
+
+```typescript
+{
+  type: "turn_end";
+  iteration: number;
+  hasToolCalls: boolean;   // Whether this turn contained tool calls
+}
+```
+
+### error
+
+Emitted when an error occurs during execution.
+
+```typescript
+{
+  type: "error";
+  error: Error | string;
+  recoverable: boolean;    // Whether the agent can continue
+}
+```
+
+### warning
+
+Emitted for non-fatal issues that deserve attention.
+
+```typescript
+{
+  type: "warning";
+  message: string;
+  code: string;            // Machine-readable warning code
+}
+```
+
+### compaction
+
+Emitted when the context window is compacted to free token space.
+
+```typescript
+{
+  type: "compaction";
+  tokensFreed: number;     // Number of tokens reclaimed
+}
+```
+
+### recovery
+
+Emitted when the agent recovers from a transient failure.
+
+```typescript
+{
+  type: "recovery";
+  reason: string;          // What went wrong
+  action: string;          // What the agent did to recover
+}
+```
+
+### model_fallback
+
+Emitted when the agent falls back to an alternative model.
+
+```typescript
+{
+  type: "model_fallback";
+  from: string;            // Original model
+  to: string;              // Fallback model
+  reason: string;          // Why the fallback occurred
+}
+```
+
+### agent_end
+
+Emitted once at the end of every execution. Contains final usage statistics.
+
+```typescript
+{
+  type: "agent_end";
+  traceId: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  reason: string;          // Why execution ended (e.g. "complete", "max_iterations")
+  duration: number;        // Total execution time in milliseconds
+}
+```
+
+---
+
+## Usage Patterns
+
+### Chat UI -- Render Text in Real Time
+
+Stream `text_delta` events directly into a UI element for a typewriter effect.
+
+```typescript
+import { Agent } from "agentx-sdk";
+
+const agent = Agent.create({
+  llmApiKey: process.env.LLM_API_KEY!,
+  model: "openai/gpt-4o",
+});
+
+let output = "";
+
+for await (const event of agent.stream("Explain closures in JS")) {
+  if (event.type === "text_delta") {
+    output += event.content;
+    // Update your UI element here
+    renderToScreen(output);
+  }
+
+  if (event.type === "tool_call_start") {
+    showSpinner(`Calling ${event.toolCall.function.name}...`);
+  }
+
+  if (event.type === "tool_call_end") {
+    hideSpinner();
+  }
+}
+```
+
+### Logging and Observability
+
+Capture structured events for your observability stack (OpenTelemetry, Datadog, etc.).
+
+```typescript
+import { Agent, createLogger } from "agentx-sdk";
+
+const logger = createLogger({ level: "info" });
+
+const agent = Agent.create({
+  llmApiKey: process.env.LLM_API_KEY!,
+  model: "openai/gpt-4o",
+});
+
+for await (const event of agent.stream("Summarize the report")) {
+  switch (event.type) {
+    case "agent_start":
+      logger.info("Execution started", { traceId: event.traceId, model: event.model });
+      break;
+    case "tool_call_end":
+      logger.info("Tool executed", {
+        toolCallId: event.toolCallId,
+        duration: event.duration,
+      });
+      break;
+    case "error":
+      logger.error("Agent error", {
+        error: event.error,
+        recoverable: event.recoverable,
+      });
+      break;
+    case "agent_end":
+      logger.info("Execution complete", {
+        traceId: event.traceId,
+        duration: event.duration,
+        tokens: event.usage.totalTokens,
+      });
+      break;
+  }
+}
+```
+
+### Cost Monitoring
+
+Track token usage and enforce budgets using `agent_end` events.
+
+```typescript
+import { Agent } from "agentx-sdk";
+
+let sessionTokens = 0;
+const SESSION_BUDGET = 100_000;
+
+const agent = Agent.create({
+  llmApiKey: process.env.LLM_API_KEY!,
+  model: "openai/gpt-4o",
+});
+
+async function chat(message: string) {
+  for await (const event of agent.stream(message)) {
+    if (event.type === "agent_end") {
+      sessionTokens += event.usage.totalTokens;
+
+      console.log(`Tokens this call: ${event.usage.totalTokens}`);
+      console.log(`Session total: ${sessionTokens} / ${SESSION_BUDGET}`);
+
+      if (sessionTokens > SESSION_BUDGET) {
+        console.warn("Session budget exceeded!");
+      }
+    }
+  }
+}
+```
+
+### Abort and Cancel with AbortController
+
+Use a standard `AbortController` to cancel a running stream at any time.
+
+```typescript
+import { Agent } from "agentx-sdk";
+
+const agent = Agent.create({
+  llmApiKey: process.env.LLM_API_KEY!,
+  model: "openai/gpt-4o",
+});
+
+const controller = new AbortController();
+
+// Cancel after 5 seconds
+setTimeout(() => controller.abort(), 5000);
+
+try {
+  for await (const event of agent.stream("Write a long essay about AI", {
+    signal: controller.signal,
+  })) {
+    if (event.type === "text_delta") {
+      process.stdout.write(event.content);
+    }
+  }
+} catch (err) {
+  if (err instanceof Error && err.name === "AbortError") {
+    console.log("\nStream cancelled by user.");
+  } else {
+    throw err;
+  }
+}
+```
+
+<Warning>
+When you abort a stream, the agent will emit an `agent_end` event with `reason: "aborted"` before the iterator closes. Always handle the `AbortError` gracefully.
+</Warning>

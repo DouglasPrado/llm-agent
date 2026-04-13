@@ -1,0 +1,395 @@
+---
+title: "Tools (Function Calling)"
+description: "Guia completo para definir e usar ferramentas com o AgentX SDK"
+---
+
+# Tools (Function Calling)
+
+Tools permitem que o agente execute acoes no mundo real — buscar informacoes, ler arquivos, executar comandos, chamar APIs. O AgentX SDK usa o padrao de **function calling** onde o LLM decide quando e quais tools usar.
+
+## Definindo uma Tool
+
+Cada tool precisa de: `name`, `description`, `parameters` (schema Zod) e `execute` (funcao async):
+
+```typescript
+import { z } from 'zod';
+import type { AgentTool } from 'agentx-sdk';
+
+const searchTool: AgentTool = {
+  name: 'web_search',
+  description: 'Busca informacoes na web usando Tavily',
+  parameters: z.object({
+    query: z.string().describe('Termo de busca'),
+    maxResults: z.number().int().min(1).max(10).default(5)
+      .describe('Numero maximo de resultados'),
+  }),
+  execute: async (args) => {
+    const { query, maxResults } = args as { query: string; maxResults: number };
+
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: process.env.TAVILY_API_KEY,
+        query,
+        max_results: maxResults,
+      }),
+    });
+
+    const data = await response.json();
+    return JSON.stringify(data.results, null, 2);
+  },
+};
+```
+
+## Usando Tools com o Agente
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+});
+
+// Adicionar tool
+agent.addTool(searchTool);
+
+// Remover tool
+agent.removeTool('web_search');
+```
+
+## Streaming com Tool Calls
+
+Quando o agente usa tools, eventos especificos sao emitidos:
+
+```typescript
+for await (const event of agent.stream('Busque noticias sobre TypeScript 5.7')) {
+  switch (event.type) {
+    case 'tool_call_start':
+      console.log(`Chamando: ${event.toolCall.function.name}`);
+      console.log(`Args: ${event.toolCall.function.arguments}`);
+      break;
+
+    case 'tool_call_delta':
+      // Argumentos sendo streamed (para tool calls longas)
+      break;
+
+    case 'tool_call_end':
+      console.log(`Resultado: ${event.result.content.slice(0, 200)}`);
+      console.log(`Duracao: ${event.duration}ms`);
+      if (event.result.isError) {
+        console.log('Tool retornou erro');
+      }
+      break;
+
+    case 'tool_progress':
+      console.log(`Progresso [${event.toolName}]:`, event.data);
+      break;
+
+    case 'text_delta':
+      process.stdout.write(event.content);
+      break;
+  }
+}
+```
+
+## Tipos de Retorno
+
+A funcao `execute` pode retornar:
+
+<Tabs>
+  <Tab title="String">
+    O retorno mais simples — uma string e interpretada como conteudo de sucesso:
+
+    ```typescript
+    execute: async (args) => {
+      return 'Resultado da operacao';
+    },
+    ```
+  </Tab>
+
+  <Tab title="AgentToolResult">
+    Para controle fino, retorne um objeto `AgentToolResult`:
+
+    ```typescript
+    execute: async (args) => {
+      return {
+        content: 'Resultado da operacao',
+        metadata: { source: 'api', cached: false },
+        isError: false,
+      };
+    },
+    ```
+  </Tab>
+
+  <Tab title="Erro">
+    Para sinalizar erro, retorne `AgentToolResult` com `isError: true` ou lance uma excecao:
+
+    ```typescript
+    // Via AgentToolResult
+    execute: async (args) => {
+      return { content: 'API indisponivel', isError: true };
+    },
+
+    // Via throw — o SDK captura e converte em resultado de erro
+    execute: async (args) => {
+      throw new Error('Falha na conexao');
+    },
+    ```
+  </Tab>
+</Tabs>
+
+## Validacao Semantica
+
+Use `validate` para rejeitar chamadas antes da execucao:
+
+```typescript
+const deleteTool: AgentTool = {
+  name: 'delete_file',
+  description: 'Deleta um arquivo do sistema',
+  parameters: z.object({
+    path: z.string().describe('Caminho do arquivo'),
+  }),
+  validate: async (args, context) => {
+    const { path } = args as { path: string };
+    if (path.startsWith('/etc') || path.startsWith('/usr')) {
+      return 'Nao e permitido deletar arquivos de sistema';
+    }
+    return null; // null = aprovado
+  },
+  execute: async (args) => {
+    // Executa somente se validate retornar null
+    const { path } = args as { path: string };
+    // ... deletar arquivo
+    return `Arquivo ${path} deletado`;
+  },
+};
+```
+
+O contexto de validacao (`ToolValidationContext`) inclui `threadId` e `recentMessages`.
+
+## Cancelamento com AbortSignal
+
+Toda tool recebe um `AbortSignal` como segundo parametro. Use-o para cancelamento cooperativo:
+
+```typescript
+const longRunningTool: AgentTool = {
+  name: 'long_task',
+  description: 'Tarefa que pode ser cancelada',
+  parameters: z.object({ input: z.string() }),
+  execute: async (args, signal) => {
+    const { input } = args as { input: string };
+
+    // Passe o signal para fetch
+    const response = await fetch('https://api.example.com/process', {
+      method: 'POST',
+      body: JSON.stringify({ input }),
+      signal, // Cancela automaticamente se o agente for abortado
+    });
+
+    return await response.text();
+  },
+};
+
+// Cancelando do lado do consumidor:
+const controller = new AbortController();
+
+setTimeout(() => controller.abort(), 10_000); // Timeout de 10s
+
+for await (const event of agent.stream('Execute a tarefa longa', {
+  signal: controller.signal,
+})) {
+  // ...
+}
+```
+
+## Execucao Paralela
+
+Marque tools como `isConcurrencySafe` para permitir execucao paralela quando o LLM faz multiplas tool calls:
+
+```typescript
+const readTool: AgentTool = {
+  name: 'read_file',
+  description: 'Le conteudo de um arquivo',
+  parameters: z.object({ path: z.string() }),
+  isConcurrencySafe: true,  // Seguro para execucao paralela
+  isReadOnly: true,          // Sem efeitos colaterais
+  execute: async (args) => { /* ... */ return ''; },
+};
+
+const writeTool: AgentTool = {
+  name: 'write_file',
+  description: 'Escreve conteudo em um arquivo',
+  parameters: z.object({ path: z.string(), content: z.string() }),
+  isConcurrencySafe: false,  // Execucao serial (default)
+  isDestructive: true,        // Operacao irreversivel
+  execute: async (args) => { /* ... */ return ''; },
+};
+```
+
+<Info>
+`isConcurrencySafe` pode ser uma funcao `(args) => boolean` para decidir por invocacao. Tools com `isConcurrencySafe: false` (default) sao executadas serialmente.
+</Info>
+
+## Estrategias de Erro
+
+Configure como o agente reage a erros de tools:
+
+| Estrategia | Comportamento |
+|-----------|---------------|
+| `continue` (default) | O erro e informado ao LLM que decide o que fazer |
+| `stop` | A execucao para imediatamente |
+| `retry` | A tool e re-executada (respeita `maxRetries`) |
+
+Configuracao por tool:
+
+```typescript
+const flakytool: AgentTool = {
+  name: 'flaky_api',
+  description: 'API que pode falhar temporariamente',
+  parameters: z.object({ id: z.string() }),
+  retryable: true,     // Habilita retry para esta tool
+  maxRetries: 3,       // Maximo de tentativas (default: 2)
+  timeoutMs: 10_000,   // Timeout por execucao
+  execute: async (args) => { /* ... */ return ''; },
+};
+```
+
+## Opcoes Avancadas de Tool
+
+```typescript
+const advancedTool: AgentTool = {
+  name: 'advanced',
+  description: 'Tool com todas as opcoes',
+  parameters: z.object({ input: z.string() }),
+
+  // Limite de caracteres no resultado (default: 10000)
+  maxResultChars: 5_000,
+
+  // Timeout em milissegundos
+  timeoutMs: 30_000,
+
+  // Transformar resultado antes de enviar ao modelo
+  mapResult: (result) => ({
+    ...result,
+    content: result.content.replace(/sensitive-data/g, '[REDACTED]'),
+  }),
+
+  // Extrair caminhos de arquivo (ativa skills condicionais)
+  getFilePath: (args) => (args as { path: string }).path,
+
+  // Callback de progresso
+  execute: async (args, signal, onProgress) => {
+    onProgress?.({ step: 1, total: 3, message: 'Conectando...' });
+    // ... trabalho ...
+    onProgress?.({ step: 2, total: 3, message: 'Processando...' });
+    // ... trabalho ...
+    onProgress?.({ step: 3, total: 3, message: 'Concluido' });
+    return 'Resultado final';
+  },
+};
+```
+
+## Builtin Tools
+
+O SDK inclui ferramentas prontas para uso:
+
+```typescript
+import { builtinTools } from 'agentx-sdk';
+
+// Adicionar todas as tools builtin (exceto askUser)
+for (const tool of builtinTools.all()) {
+  agent.addTool(tool);
+}
+
+// Ou apenas tools de arquivo
+for (const tool of builtinTools.fileOps()) {
+  agent.addTool(tool);
+}
+
+// Ou tools individuais
+agent.addTool(builtinTools.glob());
+agent.addTool(builtinTools.grep());
+agent.addTool(builtinTools.fileRead());
+agent.addTool(builtinTools.fileWrite());
+agent.addTool(builtinTools.fileEdit());
+agent.addTool(builtinTools.bash());
+agent.addTool(builtinTools.webFetch());
+```
+
+| Tool | Descricao | Concurrency-Safe |
+|------|-----------|-----------------|
+| `glob` | Busca arquivos por padrao glob | Sim |
+| `grep` | Busca conteudo por regex | Sim |
+| `fileRead` | Le conteudo de arquivos | Sim |
+| `fileWrite` | Cria/sobrescreve arquivos | Nao |
+| `fileEdit` | Find/replace em arquivos | Nao |
+| `bash` | Executa comandos shell | Nao |
+| `webFetch` | Busca conteudo de URLs | Sim |
+| `askUser` | Faz pergunta ao usuario | Nao |
+
+### askUser — Interacao com Usuario
+
+A tool `askUser` requer um callback para capturar a resposta do usuario:
+
+```typescript
+import { createAskUserTool } from 'agentx-sdk';
+
+const askUser = createAskUserTool({
+  onAsk: async (question: string) => {
+    // Implemente conforme seu ambiente (CLI, web, etc.)
+    const readline = await import('node:readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    return new Promise((resolve) => {
+      rl.question(`${question}\n> `, (answer) => {
+        rl.close();
+        resolve(answer);
+      });
+    });
+  },
+});
+
+agent.addTool(askUser);
+```
+
+## SQL Query Tools
+
+Crie tools de consulta SQL automaticamente a partir de definicoes:
+
+```typescript
+import { createSqlTools } from 'agentx-sdk';
+
+const sqlTools = createSqlTools({
+  runner: {
+    run: (sql, params) => {
+      // Execute a query no seu banco de dados
+      return db.prepare(sql).all(params);
+    },
+  },
+  queries: [
+    {
+      name: 'search_products',
+      description: 'Busca produtos por nome ou categoria',
+      sql: 'SELECT * FROM products WHERE name LIKE :query OR category = :category LIMIT :limit',
+      parameters: z.object({
+        query: z.string().describe('Termo de busca'),
+        category: z.string().optional().describe('Categoria'),
+        limit: z.number().default(10),
+      }),
+    },
+    {
+      name: 'get_order',
+      description: 'Busca detalhes de um pedido',
+      sql: 'SELECT * FROM orders WHERE id = :id',
+      parameters: z.object({
+        id: z.string().describe('ID do pedido'),
+      }),
+    },
+  ],
+});
+
+for (const tool of sqlTools) {
+  agent.addTool(tool);
+}
+```

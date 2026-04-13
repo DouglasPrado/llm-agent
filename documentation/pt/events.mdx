@@ -1,0 +1,388 @@
+---
+title: "Eventos de Streaming"
+description: "Referencia completa dos eventos emitidos durante streaming no AgentX SDK"
+---
+
+# Eventos de Streaming
+
+O `stream()` emite uma sequencia de `AgentEvent` que permite acompanhar cada etapa da execucao do agente em tempo real. Todos os eventos sao tipados como um union type TypeScript.
+
+## Fluxo de Eventos
+
+Um fluxo tipico de eventos durante uma execucao com tool calls:
+
+```
+agent_start
+  |
+  v
+turn_start (iteration: 1)
+  |
+  v
+text_delta  (varios)      -- LLM gerando texto antes de tool call
+  |
+  v
+tool_call_start           -- LLM decidiu usar uma tool
+  |
+  v
+tool_call_delta (varios)  -- Argumentos sendo streamed
+  |
+  v
+tool_call_end             -- Tool executada, resultado disponivel
+  |
+  v
+turn_end (iteration: 1)
+  |
+  v
+turn_start (iteration: 2)
+  |
+  v
+text_delta  (varios)      -- LLM gerando resposta final
+  |
+  v
+text_done                 -- Texto completo
+  |
+  v
+turn_end (iteration: 2)
+  |
+  v
+agent_end
+```
+
+## Tipos de Evento
+
+### agent_start
+
+Emitido no inicio de cada execucao `stream()`:
+
+```typescript
+interface AgentStartEvent {
+  type: 'agent_start';
+  traceId: string;     // ID unico da execucao
+  threadId: string;    // ID do thread de conversa
+  model: string;       // Modelo LLM sendo usado
+}
+```
+
+### text_delta
+
+Emitido para cada fragmento de texto gerado pelo LLM:
+
+```typescript
+interface TextDeltaEvent {
+  type: 'text_delta';
+  content: string;     // Fragmento de texto
+}
+```
+
+### text_done
+
+Emitido quando o LLM termina de gerar texto (antes de tool calls ou no final):
+
+```typescript
+interface TextDoneEvent {
+  type: 'text_done';
+  content: string;     // Texto completo gerado nesta iteracao
+}
+```
+
+### tool_call_start
+
+Emitido quando o LLM inicia uma chamada de tool:
+
+```typescript
+interface ToolCallStartEvent {
+  type: 'tool_call_start';
+  toolCall: {
+    id: string;
+    type: 'function';
+    function: {
+      name: string;       // Nome da tool
+      arguments: string;  // JSON dos argumentos
+    };
+  };
+}
+```
+
+### tool_call_delta
+
+Emitido durante o streaming dos argumentos de uma tool call:
+
+```typescript
+interface ToolCallDeltaEvent {
+  type: 'tool_call_delta';
+  toolCallId: string;      // ID da tool call
+  argumentsDelta: string;  // Fragmento dos argumentos
+}
+```
+
+### tool_call_end
+
+Emitido quando uma tool termina de executar:
+
+```typescript
+interface ToolCallEndEvent {
+  type: 'tool_call_end';
+  toolCallId: string;
+  result: {
+    content: string;                   // Resultado da tool
+    metadata?: Record<string, unknown>; // Metadados opcionais
+    isError?: boolean;                  // Se o resultado e um erro
+  };
+  duration: number;  // Tempo de execucao em ms
+}
+```
+
+### tool_progress
+
+Emitido quando uma tool reporta progresso incremental:
+
+```typescript
+interface ToolProgressEvent {
+  type: 'tool_progress';
+  toolCallId: string;
+  toolName: string;
+  data: Record<string, unknown>;  // Dados de progresso customizados
+}
+```
+
+### turn_start / turn_end
+
+Marcam inicio e fim de cada iteracao do ReactLoop:
+
+```typescript
+interface TurnStartEvent {
+  type: 'turn_start';
+  iteration: number;  // Numero da iteracao (1-based)
+}
+
+interface TurnEndEvent {
+  type: 'turn_end';
+  iteration: number;
+  hasToolCalls: boolean;  // Se houve tool calls nesta iteracao
+}
+```
+
+### skill_activated
+
+Emitido quando uma skill e ativada para a mensagem:
+
+```typescript
+interface SkillActivatedEvent {
+  type: 'skill_activated';
+  skillName: string;
+}
+```
+
+### memory_extracted
+
+Emitido quando memorias sao extraidas automaticamente:
+
+```typescript
+interface MemoryExtractedEvent {
+  type: 'memory_extracted';
+  filename: string;  // Nome do arquivo de memoria criado
+  content: string;   // Conteudo da memoria
+}
+```
+
+### knowledge_retrieved
+
+Emitido quando chunks de knowledge sao recuperados via RAG:
+
+```typescript
+interface KnowledgeRetrievedEvent {
+  type: 'knowledge_retrieved';
+  chunks: number;     // Quantidade de chunks recuperados
+  topScore: number;   // Score do chunk mais relevante
+}
+```
+
+### error
+
+Emitido quando ocorre um erro:
+
+```typescript
+interface ErrorEvent {
+  type: 'error';
+  error: Error;          // Objeto de erro
+  recoverable: boolean;  // Se o agente pode continuar
+}
+```
+
+### warning
+
+Emitido para alertas nao-fatais:
+
+```typescript
+interface WarningEvent {
+  type: 'warning';
+  message: string;  // Mensagem de alerta
+  code: string;     // Codigo do alerta
+}
+```
+
+### compaction
+
+Emitido quando o contexto e compactado:
+
+```typescript
+interface CompactionEvent {
+  type: 'compaction';
+  strategy: 'microcompact' | 'autocompact';
+  tokensFreed: number;  // Tokens liberados
+}
+```
+
+### recovery
+
+Emitido quando o agente se recupera de uma falha:
+
+```typescript
+interface RecoveryEvent {
+  type: 'recovery';
+  reason: 'max_output_tokens_escalate'
+    | 'max_output_tokens_recovery'
+    | 'reactive_compact_retry'
+    | 'stop_hook_blocking'
+    | 'token_budget_continuation'
+    | 'tool_retry';
+  attempt: number;  // Numero da tentativa
+}
+```
+
+### model_fallback
+
+Emitido quando o agente troca para o modelo fallback:
+
+```typescript
+interface ModelFallbackEvent {
+  type: 'model_fallback';
+  from: string;  // Modelo original
+  to: string;    // Modelo fallback
+}
+```
+
+### agent_end
+
+Emitido no final de cada execucao:
+
+```typescript
+interface AgentEndEvent {
+  type: 'agent_end';
+  traceId: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  reason: 'stop'              // LLM parou naturalmente
+    | 'cost_limit'            // Limite de custo atingido
+    | 'max_iterations'        // Maximo de iteracoes atingido
+    | 'error'                 // Erro irrecuperavel
+    | 'abort'                 // Cancelado via AbortSignal
+    | 'stop_hook'             // Parado por turn-end hook
+    | 'prompt_too_long'       // Prompt excedeu limite
+    | 'max_output_tokens';    // Limite de output atingido
+  duration: number;  // Tempo total em ms
+}
+```
+
+## Padroes de Uso
+
+### Chat UI
+
+Exiba texto em tempo real e indicadores de tool calls:
+
+```typescript
+for await (const event of agent.stream(userMessage)) {
+  switch (event.type) {
+    case 'text_delta':
+      appendToChat(event.content);
+      break;
+    case 'tool_call_start':
+      showToolIndicator(event.toolCall.function.name);
+      break;
+    case 'tool_call_end':
+      hideToolIndicator(event.toolCallId);
+      break;
+    case 'error':
+      if (!event.recoverable) showError(event.error.message);
+      break;
+    case 'agent_end':
+      markComplete();
+      break;
+  }
+}
+```
+
+### Logging Estruturado
+
+Capture todos os eventos para diagnostico:
+
+```typescript
+const events: AgentEvent[] = [];
+
+for await (const event of agent.stream(userMessage)) {
+  events.push(event);
+
+  if (event.type === 'tool_call_end') {
+    console.log(JSON.stringify({
+      timestamp: Date.now(),
+      tool: event.toolCallId,
+      duration: event.duration,
+      isError: event.result.isError ?? false,
+    }));
+  }
+}
+```
+
+### Monitoramento de Custo
+
+Acompanhe gastos de tokens em tempo real:
+
+```typescript
+let totalTokens = 0;
+
+for await (const event of agent.stream(userMessage)) {
+  if (event.type === 'agent_end') {
+    totalTokens += event.usage.totalTokens;
+    console.log(`Tokens nesta execucao: ${event.usage.totalTokens}`);
+    console.log(`Tokens acumulados: ${totalTokens}`);
+    console.log(`Duracao: ${event.duration}ms`);
+  }
+}
+
+// Ou via metodo do agente:
+const usage = agent.getUsage();
+console.log(`Total da sessao: ${usage.totalTokens} tokens`);
+```
+
+### Cancelamento
+
+Use `AbortSignal` para cancelar a execucao:
+
+```typescript
+const controller = new AbortController();
+
+// Cancela apos 30 segundos
+const timeout = setTimeout(() => controller.abort(), 30_000);
+
+try {
+  for await (const event of agent.stream(userMessage, {
+    signal: controller.signal,
+  })) {
+    if (event.type === 'text_delta') {
+      process.stdout.write(event.content);
+    }
+    if (event.type === 'agent_end') {
+      console.log(`\nReason: ${event.reason}`);
+      // Se cancelado: reason === 'abort'
+    }
+  }
+} finally {
+  clearTimeout(timeout);
+}
+
+// Cancelamento manual
+cancelButton.onclick = () => controller.abort();
+```

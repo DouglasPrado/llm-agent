@@ -1,0 +1,374 @@
+---
+title: "Configuracao"
+description: "Referencia completa de todas as opcoes de configuracao do AgentX SDK"
+---
+
+# Configuracao
+
+O AgentX SDK usa Zod para validar toda a configuracao. Voce passa um objeto `AgentConfigInput` para `Agent.create()` e o SDK aplica defaults e validacao automaticamente.
+
+## Configuracao Core
+
+As opcoes fundamentais para conectar ao LLM:
+
+```typescript
+const agent = Agent.create({
+  // OBRIGATORIO: chave de API do provedor LLM
+  apiKey: process.env.LLM_API_KEY!,
+
+  // Modelo a usar (default: 'anthropic/claude-sonnet-4-20250514')
+  model: 'anthropic/claude-sonnet-4-20250514',
+
+  // URL base da API (default: 'https://openrouter.ai/api/v1')
+  baseUrl: 'https://openrouter.ai/api/v1',
+
+  // Prompt de sistema (opcional)
+  systemPrompt: 'Voce e um assistente prestativo.',
+
+  // Nivel de log: 'debug' | 'info' | 'warn' | 'error' | 'silent' (default: 'info')
+  logLevel: 'info',
+
+  // Caminho do banco SQLite (default: '~/.agent/data.db')
+  dbPath: '~/.agent/data.db',
+});
+```
+
+## Embedding Provider
+
+Configure um provedor separado para embeddings (util quando o chat usa OpenRouter mas embeddings usam OpenAI direta):
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  // Provider separado para embeddings
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY,      // Se omitido, usa apiKey principal
+    baseUrl: 'https://api.openai.com/v1',        // Se omitido, usa baseUrl principal
+    model: 'text-embedding-3-small',             // Se omitido, usa embeddingModel
+  },
+
+  // Modelo de embedding (usado se embedding.model nao for definido)
+  embeddingModel: 'openai/text-embedding-3-small',
+});
+```
+
+## Comportamento do ReactLoop
+
+Controle como o agente executa o ciclo de pensamento:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  // Maximo de iteracoes do ReactLoop (default: 10)
+  maxIterations: 10,
+
+  // Maximo de erros consecutivos antes de parar (default: 3)
+  maxConsecutiveErrors: 3,
+
+  // Estrategia de erro em tools: 'continue' | 'stop' | 'retry' (default: 'continue')
+  onToolError: 'continue',
+});
+```
+
+| Opcao | Tipo | Default | Descricao |
+|-------|------|---------|-----------|
+| `maxIterations` | number | 10 | Maximo de ciclos LLM -> tools -> LLM |
+| `maxConsecutiveErrors` | number | 3 | Erros seguidos antes de parar |
+| `onToolError` | string | 'continue' | Acao ao falhar uma tool |
+
+## Budget de Contexto
+
+Controle o tamanho do contexto enviado ao LLM:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  // Maximo de tokens no contexto (default: 128000)
+  maxContextTokens: 128_000,
+
+  // Tokens reservados para a resposta (default: 4096)
+  reserveTokens: 4_096,
+
+  // Maximo de mensagens fixas no historico (default: 20)
+  maxPinnedMessages: 20,
+
+  // Threshold para compactacao automatica (default: 0.8 = 80% do contexto)
+  compactionThreshold: 0.8,
+});
+```
+
+## Politica de Custo
+
+Limite gastos de tokens por execucao e por sessao:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  costPolicy: {
+    // Maximo de tokens por execucao (stream/chat)
+    maxTokensPerExecution: 50_000,
+
+    // Maximo de tokens por sessao (vida do agente)
+    maxTokensPerSession: 500_000,
+
+    // Maximo de tool calls por execucao (default: 50)
+    maxToolCallsPerExecution: 50,
+
+    // Acao ao atingir limite: 'stop' | 'warn' (default: 'stop')
+    onLimitReached: 'stop',
+  },
+});
+```
+
+## Configuracao de Memoria
+
+O sistema de memoria usa arquivos Markdown com frontmatter:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  memory: {
+    // Habilitar/desabilitar memoria (default: true)
+    enabled: true,
+
+    // Diretorio para arquivos de memoria (default: '~/.agent/memory/')
+    memoryDir: '~/.agent/memory/',
+
+    // Modelo para avaliacao de relevancia (opcional, usa modelo principal)
+    relevanceModel: undefined,
+
+    // Maximo de arquivos de memoria (default: 200)
+    maxMemoryFiles: 200,
+
+    // Habilitar extracao automatica de memorias (default: true)
+    extractionEnabled: true,
+
+    // Taxa de amostragem para extracao (default: 0.3 = 30%)
+    samplingRate: 0.3,
+
+    // Intervalo de turnos entre extracoes (default: 10)
+    extractionInterval: 10,
+  },
+});
+```
+
+## Configuracao de Knowledge/RAG
+
+Controle como documentos sao ingeridos e buscados:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  knowledge: {
+    // Habilitar/desabilitar RAG (default: true)
+    enabled: true,
+
+    // VectorStore customizado (opcional, default: SQLiteVectorStore)
+    store: undefined,
+
+    // Tamanho dos chunks em tokens (default: 512)
+    chunkSize: 512,
+
+    // Overlap entre chunks (default: 64)
+    chunkOverlap: 64,
+
+    // Quantidade de resultados na busca (default: 5)
+    topK: 5,
+
+    // Score minimo de similaridade (default: 0.3)
+    minScore: 0.3,
+  },
+});
+```
+
+## Configuracao de Skills
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  skills: {
+    // Diretorio com arquivos SKILL.md (opcional)
+    skillsDir: './skills',
+
+    // Maximo de skills ativas simultaneamente (default: 3)
+    maxActiveSkills: 3,
+
+    // Permitir que o modelo descubra e invoque skills (default: true)
+    modelDiscovery: true,
+  },
+});
+```
+
+## Configuracao de MCP
+
+Conecte servidores MCP automaticamente na criacao do agente:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  mcp: [
+    {
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+      timeout: 30_000,        // Timeout por operacao (default: 30s)
+      maxRetries: 3,          // Tentativas de reconexao (default: 3)
+      healthCheckInterval: 60_000,  // Intervalo de health check (default: 60s)
+      isolateErrors: true,    // Isolar erros do server (default: true)
+    },
+    {
+      name: 'github',
+      transport: 'sse',
+      url: 'https://mcp.github.com/sse',
+      headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` },
+    },
+  ],
+});
+```
+
+## Recovery e Fallback
+
+Configure comportamento de recuperacao automatica:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+
+  // Modelo fallback se o principal falhar
+  fallbackModel: 'openai/gpt-4o',
+
+  // Limite de tokens na resposta
+  maxOutputTokens: 4_096,
+
+  // Limite escalado apos truncamento
+  escalatedMaxOutputTokens: 16_384,
+
+  // Token budget (continuacao automatica)
+  tokenBudget: {
+    total: 200_000,
+    outputThreshold: 0.5,  // Continua se usou < 50% do budget de output
+  },
+});
+```
+
+## Modo Deterministico
+
+Para testes reproduziveis:
+
+```typescript
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+
+  // Ativa modo deterministico
+  deterministic: true,
+
+  // Seed para reproducibilidade
+  seed: 42,
+});
+```
+
+## Conversation Store Customizado
+
+Troque o store de conversas por uma implementacao customizada:
+
+```typescript
+import { Agent, type ConversationStore } from 'agentx-sdk';
+
+const customStore: ConversationStore = {
+  appendMessage: (message, threadId) => { /* ... */ },
+  listThread: (threadId) => { /* ... */ return []; },
+  listPinned: (threadId) => { /* ... */ return []; },
+  clearThread: (threadId) => { /* ... */ },
+};
+
+const agent = Agent.create({
+  apiKey: process.env.LLM_API_KEY!,
+  conversation: { store: customStore },
+});
+```
+
+## Exemplo Completo
+
+```typescript
+import { Agent } from 'agentx-sdk';
+
+const agent = Agent.create({
+  // Core
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'anthropic/claude-sonnet-4-20250514',
+  baseUrl: 'https://openrouter.ai/api/v1',
+  systemPrompt: 'Voce e um assistente de desenvolvimento especializado em TypeScript.',
+  logLevel: 'info',
+  dbPath: '~/.agent/data.db',
+
+  // Embedding separado (OpenAI direto)
+  embedding: {
+    apiKey: process.env.EMBEDDING_API_KEY,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+  },
+
+  // Comportamento
+  maxIterations: 15,
+  maxConsecutiveErrors: 3,
+  onToolError: 'continue',
+
+  // Contexto
+  maxContextTokens: 128_000,
+  reserveTokens: 4_096,
+  maxPinnedMessages: 20,
+
+  // Custo
+  costPolicy: {
+    maxTokensPerExecution: 50_000,
+    maxToolCallsPerExecution: 30,
+    onLimitReached: 'stop',
+  },
+
+  // Memoria
+  memory: {
+    enabled: true,
+    memoryDir: '~/.agent/memory/',
+    extractionEnabled: true,
+  },
+
+  // Knowledge
+  knowledge: {
+    enabled: true,
+    chunkSize: 512,
+    topK: 5,
+    minScore: 0.3,
+  },
+
+  // Skills
+  skills: {
+    skillsDir: './skills',
+    maxActiveSkills: 3,
+  },
+
+  // MCP
+  mcp: [
+    {
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+    },
+  ],
+
+  // Recovery
+  fallbackModel: 'openai/gpt-4o',
+  maxOutputTokens: 4_096,
+  escalatedMaxOutputTokens: 16_384,
+});
+```

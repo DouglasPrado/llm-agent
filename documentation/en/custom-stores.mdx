@@ -1,0 +1,334 @@
+---
+title: "Custom Stores"
+description: "Replace SQLite with your own persistence backend"
+---
+
+# Custom Stores
+
+AgentX SDK ships with SQLite-based stores by default, but every persistence layer is behind a pluggable interface. You can swap in Postgres, Redis, Pinecone, DynamoDB, or any backend that implements the required interface.
+
+## Store Interfaces
+
+The SDK defines two core store interfaces:
+
+| Interface | Purpose | Default Implementation |
+|-----------|---------|----------------------|
+| `VectorStore` | Stores and searches knowledge embeddings for RAG | `SQLiteVectorStore` |
+| `ConversationStore` | Stores chat message history per thread | `SQLiteConversationStore` |
+
+<Info>
+All stores are injected at agent creation time via `Agent.create()`. You can mix and match -- for example, use SQLite for conversations and Pinecone for vectors.
+</Info>
+
+---
+
+## VectorStore
+
+The `VectorStore` interface handles knowledge document storage and semantic search.
+
+### Interface Definition
+
+```typescript
+interface VectorStore {
+  upsert(chunk: KnowledgeChunk): Promise<void>;
+  search(embedding: number[], topK: number): Promise<RetrievedKnowledge[]>;
+  delete(id: string): Promise<void>;
+  listAll(): Promise<KnowledgeChunk[]>;
+  deleteBySource(source: string): Promise<void>;
+}
+```
+
+### Example: Pinecone Implementation
+
+```typescript
+import { Pinecone } from "@pinecone-database/pinecone";
+import type { VectorStore, KnowledgeChunk, RetrievedKnowledge } from "agentx-sdk";
+
+export class PineconeVectorStore implements VectorStore {
+  private index;
+
+  constructor(apiKey: string, indexName: string) {
+    const client = new Pinecone({ apiKey });
+    this.index = client.Index(indexName);
+  }
+
+  async upsert(chunk: KnowledgeChunk): Promise<void> {
+    await this.index.upsert([
+      {
+        id: chunk.id,
+        values: chunk.embedding,
+        metadata: {
+          content: chunk.content,
+          source: chunk.metadata?.source ?? "",
+          createdAt: chunk.createdAt.toISOString(),
+        },
+      },
+    ]);
+  }
+
+  async search(embedding: number[], topK: number): Promise<RetrievedKnowledge[]> {
+    const results = await this.index.query({
+      vector: embedding,
+      topK,
+      includeMetadata: true,
+    });
+
+    return (results.matches ?? []).map((match) => ({
+      id: match.id,
+      content: (match.metadata?.content as string) ?? "",
+      score: match.score ?? 0,
+      metadata: match.metadata as Record<string, unknown>,
+    }));
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.index.deleteOne(id);
+  }
+
+  async listAll(): Promise<KnowledgeChunk[]> {
+    // Pinecone does not natively support listAll;
+    // implement with your metadata index or return empty
+    return [];
+  }
+
+  async deleteBySource(source: string): Promise<void> {
+    await this.index.deleteMany({ source });
+  }
+}
+```
+
+---
+
+## ConversationStore
+
+The `ConversationStore` interface manages chat history per thread.
+
+### Interface Definition
+
+```typescript
+interface ConversationStore {
+  appendMessage(threadId: string, message: ChatMessage): Promise<void>;
+  listThread(threadId: string): Promise<ChatMessage[]>;
+  listPinned(threadId: string): Promise<ChatMessage[]>;
+  clearThread(threadId: string): Promise<void>;
+}
+```
+
+### Example: Redis Implementation
+
+```typescript
+import Redis from "ioredis";
+import type { ConversationStore, ChatMessage } from "agentx-sdk";
+
+export class RedisConversationStore implements ConversationStore {
+  private redis: Redis;
+  private ttl: number;
+
+  constructor(redisUrl: string, ttlSeconds = 86400) {
+    this.redis = new Redis(redisUrl);
+    this.ttl = ttlSeconds;
+  }
+
+  private key(threadId: string): string {
+    return `agentx:thread:${threadId}`;
+  }
+
+  private pinnedKey(threadId: string): string {
+    return `agentx:thread:${threadId}:pinned`;
+  }
+
+  async appendMessage(threadId: string, message: ChatMessage): Promise<void> {
+    const serialized = JSON.stringify(message);
+    await this.redis.rpush(this.key(threadId), serialized);
+    await this.redis.expire(this.key(threadId), this.ttl);
+
+    if (message.pinned) {
+      await this.redis.rpush(this.pinnedKey(threadId), serialized);
+    }
+  }
+
+  async listThread(threadId: string): Promise<ChatMessage[]> {
+    const raw = await this.redis.lrange(this.key(threadId), 0, -1);
+    return raw.map((item) => JSON.parse(item));
+  }
+
+  async listPinned(threadId: string): Promise<ChatMessage[]> {
+    const raw = await this.redis.lrange(this.pinnedKey(threadId), 0, -1);
+    return raw.map((item) => JSON.parse(item));
+  }
+
+  async clearThread(threadId: string): Promise<void> {
+    await this.redis.del(this.key(threadId));
+    await this.redis.del(this.pinnedKey(threadId));
+  }
+}
+```
+
+---
+
+## Using Custom Stores with Agent
+
+Pass your custom store implementations to `Agent.create()`:
+
+```typescript
+import { Agent } from "agentx-sdk";
+import { PineconeVectorStore } from "./stores/pinecone-vector-store";
+import { RedisConversationStore } from "./stores/redis-conversation-store";
+
+const agent = Agent.create({
+  llmApiKey: process.env.LLM_API_KEY!,
+  model: "openai/gpt-4o",
+  instructions: "You are a helpful assistant.",
+
+  // Custom stores
+  vectorStore: new PineconeVectorStore(
+    process.env.PINECONE_API_KEY!,
+    "knowledge-index"
+  ),
+  conversationStore: new RedisConversationStore(
+    process.env.REDIS_URL!,
+    3600 * 24  // 24 hour TTL
+  ),
+});
+```
+
+---
+
+## Built-in SQLite Stores
+
+The default stores use `better-sqlite3` with WAL mode and require zero configuration. They are ideal for local development, single-server deployments, and prototyping.
+
+```typescript
+import {
+  Agent,
+  SQLiteDatabase,
+  SQLiteVectorStore,
+  SQLiteConversationStore,
+} from "agentx-sdk";
+
+// Option 1: Let Agent.create() handle everything (default)
+const agent = Agent.create({
+  llmApiKey: process.env.LLM_API_KEY!,
+  model: "openai/gpt-4o",
+});
+
+// Option 2: Explicit SQLite setup with custom path
+const db = new SQLiteDatabase("./data/my-agent.db");
+
+const agent2 = Agent.create({
+  llmApiKey: process.env.LLM_API_KEY!,
+  model: "openai/gpt-4o",
+  vectorStore: new SQLiteVectorStore(db),
+  conversationStore: new SQLiteConversationStore(db),
+});
+```
+
+<Note>
+SQLite stores automatically create tables and run migrations on first use. The database file is created at the specified path if it does not exist.
+</Note>
+
+---
+
+## Testing with Mocks
+
+Use in-memory mocks for fast, isolated unit tests.
+
+```typescript
+import { describe, it, expect, vi } from "vitest";
+import { Agent } from "agentx-sdk";
+import type { VectorStore, ConversationStore, ChatMessage, KnowledgeChunk, RetrievedKnowledge } from "agentx-sdk";
+
+// In-memory mock VectorStore
+class MockVectorStore implements VectorStore {
+  private chunks: KnowledgeChunk[] = [];
+
+  async upsert(chunk: KnowledgeChunk): Promise<void> {
+    this.chunks.push(chunk);
+  }
+
+  async search(embedding: number[], topK: number): Promise<RetrievedKnowledge[]> {
+    return this.chunks.slice(0, topK).map((c) => ({
+      id: c.id,
+      content: c.content,
+      score: 0.95,
+      metadata: c.metadata,
+    }));
+  }
+
+  async delete(id: string): Promise<void> {
+    this.chunks = this.chunks.filter((c) => c.id !== id);
+  }
+
+  async listAll(): Promise<KnowledgeChunk[]> {
+    return this.chunks;
+  }
+
+  async deleteBySource(source: string): Promise<void> {
+    this.chunks = this.chunks.filter((c) => c.metadata?.source !== source);
+  }
+}
+
+// In-memory mock ConversationStore
+class MockConversationStore implements ConversationStore {
+  private threads = new Map<string, ChatMessage[]>();
+
+  async appendMessage(threadId: string, message: ChatMessage): Promise<void> {
+    const thread = this.threads.get(threadId) ?? [];
+    thread.push(message);
+    this.threads.set(threadId, thread);
+  }
+
+  async listThread(threadId: string): Promise<ChatMessage[]> {
+    return this.threads.get(threadId) ?? [];
+  }
+
+  async listPinned(threadId: string): Promise<ChatMessage[]> {
+    return (this.threads.get(threadId) ?? []).filter((m) => m.pinned);
+  }
+
+  async clearThread(threadId: string): Promise<void> {
+    this.threads.delete(threadId);
+  }
+}
+
+describe("Agent with mock stores", () => {
+  it("should use custom stores", () => {
+    const agent = Agent.create({
+      llmApiKey: "test-key",
+      model: "openai/gpt-4o",
+      vectorStore: new MockVectorStore(),
+      conversationStore: new MockConversationStore(),
+    });
+
+    expect(agent).toBeDefined();
+  });
+});
+```
+
+---
+
+## When to Use Custom Stores
+
+<CardGroup cols={2}>
+  <Card title="Development / Prototyping" icon="laptop-code">
+    **Use SQLite (default)**. Zero config, single file, fast local iteration.
+  </Card>
+  <Card title="Production > 100K Vectors" icon="magnifying-glass">
+    **Use PgVector or Pinecone**. Purpose-built for high-volume semantic search with ANN indexes.
+  </Card>
+  <Card title="Distributed / Multi-Server" icon="server">
+    **Use Redis or DynamoDB**. Shared state across instances with low-latency reads.
+  </Card>
+  <Card title="Serverless" icon="cloud">
+    **Use DynamoDB or Upstash Redis**. No persistent connections required, scales to zero.
+  </Card>
+</CardGroup>
+
+| Scenario | VectorStore | ConversationStore | Why |
+|----------|------------|-------------------|-----|
+| Local dev / CLI tool | SQLite (default) | SQLite (default) | Zero config, single file |
+| Production, < 100K vectors | SQLite | SQLite or Redis | SQLite handles moderate scale well |
+| Production, > 100K vectors | Pinecone / PgVector | Redis / Postgres | ANN indexes, horizontal scaling |
+| Multi-server deployment | Pinecone / PgVector | Redis | Shared state across instances |
+| Serverless (Lambda, etc.) | DynamoDB / Pinecone | DynamoDB / Upstash | No persistent connections |
+| Unit / integration tests | In-memory mock | In-memory mock | Fast, deterministic, isolated |
