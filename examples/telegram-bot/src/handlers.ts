@@ -128,14 +128,6 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
         case "tool_call_end": {
           isSearching = false;
-          // Refresh typing indicator
-          await ctx.replyWithChatAction("typing").catch(() => {});
-          break;
-        }
-
-        case "turn_start": {
-          // Refresh typing on each loop iteration so Telegram doesn't stop showing "typing"
-          await ctx.replyWithChatAction("typing").catch(() => {});
           break;
         }
 

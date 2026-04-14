@@ -133,14 +133,13 @@ export class AgentXBot extends TeamsActivityHandler {
     console.log("threadId", threadId);
     const agent = await getAgent(threadId);
 
-    // Keep typing indicator alive during processing
-    const typingInterval = setInterval(async () => {
-      try {
-        await context.sendActivities([{ type: ActivityTypes.Typing }]);
-      } catch {
-        /* ignore */
-      }
-    }, 2500);
+    // Send an initial typing indicator; refresh only on tool calls so it
+    // doesn't linger after the final response (Teams typing auto-expires ~5s).
+    try {
+      await context.sendActivities([{ type: ActivityTypes.Typing }]);
+    } catch {
+      /* ignore */
+    }
 
     try {
       let fullText = "";
@@ -165,6 +164,11 @@ export class AgentXBot extends TeamsActivityHandler {
                 activityId!,
                 fullText + `\n\n_${statusMsg}_`,
               );
+            }
+            try {
+              await context.sendActivities([{ type: ActivityTypes.Typing }]);
+            } catch {
+              /* ignore */
             }
             break;
           }
@@ -243,8 +247,6 @@ export class AgentXBot extends TeamsActivityHandler {
       } catch {
         /* ignore */
       }
-    } finally {
-      clearInterval(typingInterval);
     }
   }
 
