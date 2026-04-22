@@ -1,6 +1,6 @@
 {
   "name": "agentx-sdk",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "AgentX SDK - Standalone TypeScript agent library with streaming, tools, memory, knowledge (RAG), and skills",
   "type": "module",
   "main": "dist/index.js",
