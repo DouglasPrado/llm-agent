@@ -2,9 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { executeReactLoop } from '../../../src/core/react-loop.js';
 import { ToolExecutor } from '../../../src/tools/tool-executor.js';
 import type { LLMClient } from '../../../src/llm/llm-client.js';
-import type { StreamChunk } from '../../../src/llm/message-types.js';
+import type { StreamChunk, LLMMessage } from '../../../src/llm/message-types.js';
 import type { AgentEvent } from '../../../src/contracts/entities/agent-event.js';
 import type { Terminal } from '../../../src/core/loop-types.js';
+import { SKILL_TOOL_NAME } from '../../../src/tools/skill-tool.js';
 import { z } from 'zod';
 
 function createMockClient(chunks: StreamChunk[][]): LLMClient {
@@ -202,6 +203,60 @@ describe('executeReactLoop', () => {
     expect(toolMessages.map(m => m.tool_call_id)).toEqual(
       expect.arrayContaining(['call_a', 'call_b']),
     );
+  });
+
+  it('preserves message order on turn 2 after Skill tool call (pinned tool result stays after assistant)', async () => {
+    // Regression for the bug: the Skill tool result is marked _pinned, and downstream
+    // compaction/normalization steps used to reorder [system, pinned, rest] which placed
+    // the tool result BEFORE the assistant message with tool_calls — violating OpenAI's
+    // invariant that `tool` messages must be preceded by an assistant message with
+    // matching `tool_calls`. The API rejected turn 2 with
+    //   "messages with role 'tool' must be a response to a preceeding message with 'tool_calls'".
+    let capturedMessages: LLMMessage[] = [];
+    const client = {
+      streamChat: vi.fn(async function* (params: { messages: LLMMessage[] }) {
+        capturedMessages = params.messages;
+        const n = (client.streamChat as ReturnType<typeof vi.fn>).mock.calls.length;
+        if (n === 1) {
+          yield { type: 'tool_call', id: 'skill-1', name: SKILL_TOOL_NAME, arguments: '{"skill":"albert-api"}' };
+          yield { type: 'done', finishReason: 'tool_calls', usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } };
+        } else {
+          yield { type: 'content', data: 'ok' };
+          yield { type: 'done', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } };
+        }
+      }),
+    } as unknown as LLMClient;
+
+    const executor = new ToolExecutor();
+    executor.register({
+      name: SKILL_TOOL_NAME,
+      description: 'Skill tool',
+      parameters: z.object({ skill: z.string() }),
+      execute: vi.fn().mockResolvedValue('<skill name="albert-api">instructions</skill>'),
+    });
+
+    const initial: LLMMessage[] = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: '/testarapi' },
+    ];
+    const gen = executeReactLoop(initial, {
+      client,
+      toolExecutor: executor,
+      model: 'test',
+      maxIterations: 10,
+      maxConsecutiveErrors: 3,
+      onToolError: 'continue',
+    });
+
+    const { terminal } = await consumeLoop(gen);
+    expect(terminal.reason).toBe('stop');
+
+    // On turn 2, messages sent to LLM must be in the canonical order
+    // [system, user, assistant(tool_calls), tool].
+    expect(capturedMessages.map(m => m.role)).toEqual(['system', 'user', 'assistant', 'tool']);
+    const assistantIdx = capturedMessages.findIndex(m => m.role === 'assistant' && !!m.tool_calls);
+    const toolIdx = capturedMessages.findIndex(m => m.role === 'tool');
+    expect(toolIdx).toBe(assistantIdx + 1);
   });
 
   it('should handle tool error with onToolError=stop', async () => {

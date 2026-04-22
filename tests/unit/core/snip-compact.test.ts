@@ -73,4 +73,47 @@ describe('snipCompact', () => {
     const result = snipCompact(messages, { tailProtection: 2 });
     expect(result.messages.some(m => m.content === 'summary')).toBe(true);
   });
+
+  it('preserves original order (pinned tool result stays after its assistant tool_calls)', () => {
+    // Regression: OpenAI API requires a `tool` message to be preceded by an
+    // `assistant` message with matching `tool_calls`. Reordering `_pinned` tool
+    // results to before the assistant message broke that invariant.
+    const assistantWithToolCalls: LLMMessage = {
+      role: 'assistant',
+      content: '',
+      tool_calls: [{ id: 'skill-1', type: 'function', function: { name: 'Skill', arguments: '{}' } }],
+    };
+    const pinnedToolResult = {
+      role: 'tool' as const,
+      content: 'skill instructions',
+      tool_call_id: 'skill-1',
+      _pinned: true,
+    } as LLMMessage;
+
+    const messages: LLMMessage[] = [
+      { role: 'system', content: 'sys' },
+      userMsg('/testarapi'),
+      assistantWithToolCalls,
+      pinnedToolResult,
+    ];
+
+    const result = snipCompact(messages, { tailProtection: 10 });
+    expect(result.messages.map(m => m.role)).toEqual(['system', 'user', 'assistant', 'tool']);
+    // pinned tool result comes right after its assistant tool_calls
+    const assistantIdx = result.messages.findIndex(m => m.role === 'assistant' && !!m.tool_calls);
+    const toolIdx = result.messages.findIndex(m => m.role === 'tool');
+    expect(toolIdx).toBe(assistantIdx + 1);
+  });
+
+  it('preserves order across system + pinned + regular mix', () => {
+    const pinned = { role: 'user' as const, content: 'pinned-user', _pinned: true } as LLMMessage;
+    const messages: LLMMessage[] = [
+      { role: 'system', content: 'sys' },
+      userMsg('u1'),
+      pinned,
+      assistantMsg('a1'),
+    ];
+    const result = snipCompact(messages, { tailProtection: 10 });
+    expect(result.messages.map(m => m.content)).toEqual(['sys', 'u1', 'pinned-user', 'a1']);
+  });
 });

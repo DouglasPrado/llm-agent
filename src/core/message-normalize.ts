@@ -14,56 +14,59 @@ import type { LLMMessage } from '../llm/message-types.js';
 
 /**
  * Normalize messages before sending to the LLM API.
- * Removes orphaned tool results/calls and empty messages.
+ * Removes orphaned tool results/calls and empty messages, and enforces the
+ * positional invariant that every `tool` message must be preceded (in order)
+ * by an `assistant` message that declared its tool_call_id via `tool_calls`.
  */
 export function normalizeMessagesForAPI(messages: readonly LLMMessage[]): LLMMessage[] {
   if (messages.length === 0) return [];
 
-  // Collect all tool_call IDs from assistant messages
-  const declaredToolCallIds = new Set<string>();
+  // First pass: positional enforcement.
+  // Walk messages in order; a tool message is kept only if its tool_call_id has
+  // been declared in a prior assistant message's tool_calls. This catches upstream
+  // reordering bugs (e.g. a _pinned tool result floated to the top) that would
+  // otherwise violate OpenAI's invariant.
+  const seenToolCallIds = new Set<string>();
+  const positionallyValid: LLMMessage[] = [];
   for (const msg of messages) {
     if (msg.role === 'assistant' && msg.tool_calls) {
-      for (const tc of msg.tool_calls) {
-        declaredToolCallIds.add(tc.id);
-      }
+      for (const tc of msg.tool_calls) seenToolCallIds.add(tc.id);
+      positionallyValid.push(msg);
+      continue;
     }
+    if (msg.role === 'tool' && msg.tool_call_id) {
+      if (!seenToolCallIds.has(msg.tool_call_id)) continue; // orphan-in-position
+      positionallyValid.push(msg);
+      continue;
+    }
+    positionallyValid.push(msg);
   }
 
-  // Collect all tool_result IDs from tool messages
+  // Second pass: strip assistant tool_calls whose result is missing, and drop
+  // empty assistants without tool_calls.
   const presentToolResultIds = new Set<string>();
-  for (const msg of messages) {
+  for (const msg of positionallyValid) {
     if (msg.role === 'tool' && msg.tool_call_id) {
       presentToolResultIds.add(msg.tool_call_id);
     }
   }
 
   const result: LLMMessage[] = [];
-
-  for (const msg of messages) {
-    // Remove orphaned tool results (no matching tool_call in any assistant message)
-    if (msg.role === 'tool' && msg.tool_call_id) {
-      if (!declaredToolCallIds.has(msg.tool_call_id)) continue;
-    }
-
-    // Strip orphaned tool_calls from assistant (no matching tool result)
+  for (const msg of positionallyValid) {
     if (msg.role === 'assistant' && msg.tool_calls) {
       const validCalls = msg.tool_calls.filter(tc => presentToolResultIds.has(tc.id));
       if (validCalls.length === 0) {
-        // No valid tool_calls — keep as text-only if has content
         if (msg.content && typeof msg.content === 'string' && msg.content.trim()) {
           result.push({ ...msg, tool_calls: undefined });
         }
-        // Otherwise skip empty assistant with no valid tool_calls
         continue;
       }
       if (validCalls.length < msg.tool_calls.length) {
-        // Partial: keep only valid tool_calls
         result.push({ ...msg, tool_calls: validCalls });
         continue;
       }
     }
 
-    // Remove empty assistant messages without tool_calls
     if (
       msg.role === 'assistant' &&
       !msg.tool_calls &&

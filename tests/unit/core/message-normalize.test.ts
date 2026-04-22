@@ -123,4 +123,42 @@ describe('normalizeMessagesForAPI', () => {
     const emptyAssistant = result.filter(m => m.role === 'assistant' && m.content === '');
     expect(emptyAssistant).toHaveLength(0);
   });
+
+  it('strips a tool message that comes before its assistant tool_calls (positional orphan)', () => {
+    // Regression: upstream code (snipCompact / autocompact) can move a _pinned
+    // tool result to before its assistant, violating OpenAI's invariant that
+    // a `tool` message must be preceded by an `assistant` with matching
+    // `tool_calls`. The normalizer catches this as a safety net.
+    const messages: LLMMessage[] = [
+      system('sys'),
+      tool('stale skill result', 'skill-1'),   // orphan in position
+      user('/testarapi'),
+      assistant('', {
+        tool_calls: [{ id: 'skill-1', type: 'function', function: { name: 'Skill', arguments: '{}' } }],
+      }),
+      tool('fresh skill result', 'skill-1'),
+    ];
+
+    const result = normalizeMessagesForAPI(messages);
+    expect(result.map(m => m.role)).toEqual(['system', 'user', 'assistant', 'tool']);
+    const tools = result.filter(m => m.role === 'tool');
+    expect(tools).toHaveLength(1);
+    expect(tools[0]!.content).toBe('fresh skill result');
+  });
+
+  it('drops a positionally-orphaned tool even when its assistant has no valid result afterwards', () => {
+    const messages: LLMMessage[] = [
+      system('sys'),
+      tool('orphan', 'skill-1'),
+      user('hi'),
+      assistant('', {
+        tool_calls: [{ id: 'skill-1', type: 'function', function: { name: 'Skill', arguments: '{}' } }],
+      }),
+    ];
+
+    const result = normalizeMessagesForAPI(messages);
+    expect(result.some(m => m.role === 'tool')).toBe(false);
+    // Assistant with empty content and orphan tool_calls gets dropped.
+    expect(result.some(m => m.role === 'assistant')).toBe(false);
+  });
 });

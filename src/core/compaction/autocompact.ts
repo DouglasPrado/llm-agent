@@ -37,14 +37,21 @@ export async function autocompact(
 
   if (currentTokens < threshold) return null;
 
-  // Split messages into: system, pinned (boundary summaries), compactable, tail
+  // Split into: system messages, a compactable region (early), and a protected
+  // tail. Pinned messages in the early region are preserved in their ORIGINAL
+  // position (not floated to the top) to keep assistant.tool_calls followed by
+  // their `tool` results — OpenAI rejects any other order.
   const systemMessages = messages.filter(m => m.role === 'system');
   const nonSystem = messages.filter(m => m.role !== 'system');
-  const pinned = nonSystem.filter(m => (m as unknown as Record<string, unknown>)._pinned === true);
-  const unpinned = nonSystem.filter(m => (m as unknown as Record<string, unknown>)._pinned !== true);
-  const tailCount = Math.min(tailProtection, unpinned.length);
-  const toCompact = unpinned.slice(0, unpinned.length - tailCount);
-  const tailMessages = unpinned.slice(-tailCount);
+  const tailCount = Math.min(tailProtection, nonSystem.length);
+  const earlyNonSystem = nonSystem.slice(0, nonSystem.length - tailCount);
+  const tailMessages = nonSystem.slice(-tailCount);
+
+  // Within the early region, split into pinned (kept verbatim, in place) and
+  // compactable (summarized). The relative order of pinned messages to each
+  // other is preserved; they are emitted at the top of the early slot.
+  const earlyPinned = earlyNonSystem.filter(m => (m as unknown as Record<string, unknown>)._pinned === true);
+  const toCompact = earlyNonSystem.filter(m => (m as unknown as Record<string, unknown>)._pinned !== true);
 
   if (toCompact.length === 0) return null;
 
@@ -76,7 +83,7 @@ export async function autocompact(
 
     const compactedMessages = [
       ...systemMessages,
-      ...pinned,
+      ...earlyPinned,
       summaryMessage,
       ...tailMessages,
     ];
