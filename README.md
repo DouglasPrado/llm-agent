@@ -320,6 +320,8 @@ const memories = await agent.recall('What are the user preferences?');
 
 Memories are `.md` files with YAML frontmatter in `.agentx/memory/` (configurable). Four types: `user`, `feedback`, `project`, `reference`.
 
+Add `pinned: true` to the frontmatter to always inject a memory into the context, bypassing the LLM relevance selector. Use sparingly for durable reference content (team rosters, platform catalogs, global preferences).
+
 ## Knowledge (RAG)
 
 ```typescript
@@ -898,6 +900,8 @@ const memories = await agent.recall('What are the user preferences?');
 ```
 
 Memorias sao arquivos `.md` com frontmatter YAML em `.agentx/memory/` (configuravel). Quatro tipos: `user`, `feedback`, `project`, `reference`.
+
+Adicione `pinned: true` no frontmatter para sempre injetar uma memoria no contexto, ignorando o seletor de relevancia LLM. Use com parcimonia para conteudo de referencia durador (mapa do time, catalogo de plataformas, preferencias globais).
 
 ## Knowledge (RAG)
 
