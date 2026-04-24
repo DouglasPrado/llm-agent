@@ -28,6 +28,7 @@ export interface MemoryHeader {
   name: string | null;
   description: string | null;
   type: MemoryType | undefined;
+  pinned: boolean;
 }
 
 /** Full memory file including body content */
@@ -40,6 +41,7 @@ export interface MemoryFrontmatter {
   name?: string;
   description?: string;
   type?: string;
+  pinned?: boolean;
 }
 
 /** Input for saving a new memory */

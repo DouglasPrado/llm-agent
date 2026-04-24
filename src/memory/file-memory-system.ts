@@ -138,6 +138,7 @@ export class FileMemorySystem {
         name: frontmatter.name ?? null,
         description: frontmatter.description ?? null,
         type: parseMemoryType(frontmatter.type),
+        pinned: frontmatter.pinned === true,
         content: body,
       };
     } catch {
@@ -253,7 +254,11 @@ export class FileMemorySystem {
   }
 
   /**
-   * Build the full memory context for injection (MEMORY.md + relevant memories).
+   * Build the full memory context for injection (MEMORY.md + pinned + relevant memories).
+   *
+   * Pinned memories (frontmatter `pinned: true`) are always injected, bypassing
+   * the LLM relevance selector. They are excluded from the relevance pool to
+   * avoid duplication.
    */
   async buildFullContext(query: string, signal?: AbortSignal, threadId?: string): Promise<string> {
     const parts: string[] = [];
@@ -263,7 +268,30 @@ export class FileMemorySystem {
       parts.push('# Memory Index\n' + indexContent);
     }
 
-    const relevant = await this.findRelevant(query, signal, undefined, threadId);
+    const allMemories = await this.scanMemories(signal, threadId);
+    const pinnedHeaders = allMemories.filter(m => m.pinned);
+    const pinnedFilenames = new Set(pinnedHeaders.map(m => m.filename));
+
+    const pinnedFiles: MemoryFile[] = [];
+    for (const header of pinnedHeaders) {
+      // Pinned memories can live in either thread or global dir. Try thread first
+      // when threadId is set (mirrors findRelevant's lookup order).
+      const mem = threadId
+        ? (await this.readMemory(header.filename, threadId) ?? await this.readMemory(header.filename))
+        : await this.readMemory(header.filename);
+      if (mem) pinnedFiles.push(mem);
+    }
+
+    if (pinnedFiles.length > 0) {
+      parts.push('# Pinned Memories');
+      for (const mem of pinnedFiles) {
+        const freshness = memoryFreshnessNote(mem.mtimeMs);
+        const header = mem.name ? `## ${mem.name}` : `## ${mem.filename}`;
+        parts.push(`${header}\n${freshness}${mem.content}`);
+      }
+    }
+
+    const relevant = await this.findRelevant(query, signal, pinnedFilenames, threadId);
     if (relevant.length > 0) {
       parts.push('# Relevant Memories');
       for (const mem of relevant) {

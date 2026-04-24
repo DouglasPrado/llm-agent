@@ -31,7 +31,7 @@ export function parseFrontmatter(content: string): MemoryFrontmatter {
     const colonIdx = line.indexOf(':');
     if (colonIdx === -1) continue;
     const key = line.slice(0, colonIdx).trim();
-    if (key !== 'name' && key !== 'description' && key !== 'type') continue;
+    if (key !== 'name' && key !== 'description' && key !== 'type' && key !== 'pinned') continue;
 
     let value = line.slice(colonIdx + 1).trim();
 
@@ -49,6 +49,7 @@ export function parseFrontmatter(content: string): MemoryFrontmatter {
     if (key === 'name') result.name = value;
     if (key === 'description') result.description = value;
     if (key === 'type') result.type = value;
+    if (key === 'pinned') result.pinned = value === 'true' || value === 'yes' || value === '1';
   }
 
   return result;
@@ -91,6 +92,7 @@ export async function scanMemoryFiles(
           name: frontmatter.name ?? null,
           description: frontmatter.description ?? null,
           type: parseMemoryType(frontmatter.type),
+          pinned: frontmatter.pinned === true,
         };
       }),
     );
