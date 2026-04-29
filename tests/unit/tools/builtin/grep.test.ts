@@ -57,4 +57,42 @@ describe('builtin/grep', () => {
     const lines = content.split('\n').filter(l => l.includes(':'));
     expect(lines.length).toBeLessThanOrEqual(2); // 1 match + possible context
   });
+
+  describe('ReDoS protection (issue #7)', () => {
+    it('should reject patterns with nested quantifiers like (a+)+', async () => {
+      const tool = createGrepTool();
+      const result = await tool.execute({ pattern: '(a+)+b', path: tempDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+      expect(parsed.content).toMatch(/complex|ReDoS/i);
+    });
+
+    it('should reject patterns with consecutive quantifiers like a+*', async () => {
+      const tool = createGrepTool();
+      const result = await tool.execute({ pattern: 'a+*', path: tempDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('should reject patterns with quantified character classes like [a-z]*+', async () => {
+      const tool = createGrepTool();
+      const result = await tool.execute({ pattern: '[a-z]*+', path: tempDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('should still accept safe patterns', async () => {
+      const tool = createGrepTool();
+      const result = await tool.execute({ pattern: 'function', path: tempDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBeFalsy();
+    });
+
+    it('should still accept patterns with single quantifiers', async () => {
+      const tool = createGrepTool();
+      const result = await tool.execute({ pattern: 'hel+o', path: tempDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBeFalsy();
+    });
+  });
 });
