@@ -25,7 +25,13 @@ const MAX_OUTPUT = 500_000; // 500KB
 
 const BashParams = z.object({
   command: z.string().describe('Shell command to execute'),
-  timeout: z.number().optional().describe('Timeout in milliseconds. Default: 120000 (2 minutes).'),
+  timeout: z
+    .number()
+    .int()
+    .min(1, 'Timeout must be at least 1ms')
+    .max(300_000, 'Timeout cannot exceed 5 minutes (300000ms)')
+    .optional()
+    .describe('Timeout in milliseconds. Default: 120000 (2 minutes). Max: 300000 (5 minutes).'),
 });
 
 export function createBashTool(): AgentTool {
@@ -37,7 +43,7 @@ export function createBashTool(): AgentTool {
     timeoutMs: DEFAULT_TIMEOUT,
 
     async execute(rawArgs: unknown, signal: AbortSignal) {
-      const { command, timeout } = rawArgs as z.infer<typeof BashParams>;
+      const { command, timeout } = BashParams.parse(rawArgs);
       const effectiveTimeout = timeout ?? DEFAULT_TIMEOUT;
 
       return new Promise<string | { content: string; isError?: boolean }>((resolve) => {
