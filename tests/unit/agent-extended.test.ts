@@ -147,4 +147,60 @@ describe('Agent — extended API (divergence fixes)', () => {
     const body = JSON.parse((chatCall![1] as RequestInit).body as string);
     expect(body.response_format).toEqual({ type: 'json_object' });
   });
+
+  it('skill tool result should be saved with pinned=true (issue #1)', async () => {
+    // SSE round 1: LLM calls the Skill tool
+    const round1 = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tc-skill-1","type":"function","function":{"name":"Skill","arguments":""}}]},"index":0}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"skill\\":\\"test-skill\\"}"}}]},"index":0}]}\n\n',
+      'data: {"choices":[{"finish_reason":"tool_calls","index":0}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\n',
+    ].join('');
+
+    // SSE round 2: LLM responds with final text
+    const round2 = [
+      'data: {"choices":[{"delta":{"content":"Done"},"index":0}]}\n\n',
+      'data: {"choices":[{"finish_reason":"stop","index":0}],"usage":{"prompt_tokens":20,"completion_tokens":2,"total_tokens":22}}\n\n',
+    ].join('');
+
+    let fetchCall = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('/embeddings')) {
+        return new Response(JSON.stringify({ data: [{ embedding: [0.1] }] }), { status: 200 });
+      }
+      fetchCall++;
+      const data = fetchCall === 1 ? round1 : round2;
+      return new Response(
+        new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(data)); c.close(); } }),
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+      );
+    });
+
+    // Custom store to observe what gets persisted
+    const appended: Array<{ role: string; content: string; pinned?: boolean; toolCallId?: string }> = [];
+    const customStore = {
+      appendMessage(msg: { role: string; content: string; pinned?: boolean; toolCallId?: string }, _threadId: string) {
+        appended.push({ role: msg.role, content: String(msg.content), pinned: msg.pinned, toolCallId: msg.toolCallId });
+      },
+      listThread: () => [],
+      listPinned: () => [],
+      clearThread: () => {},
+    };
+
+    const agent = Agent.create({
+      apiKey: 'test-key',
+      memory: { enabled: false },
+      knowledge: { enabled: false },
+      conversation: { store: customStore as never },
+    });
+
+    agent.addSkill({ name: 'test-skill', description: 'test', instructions: 'Do test' });
+
+    await agent.chat('invoke skill');
+
+    const toolResult = appended.find(m => m.role === 'tool' && m.toolCallId === 'tc-skill-1');
+    expect(toolResult).toBeDefined();
+    // Skill tool results MUST be saved as pinned so they survive compaction in resumed sessions
+    expect(toolResult!.pinned).toBe(true);
+  });
 });

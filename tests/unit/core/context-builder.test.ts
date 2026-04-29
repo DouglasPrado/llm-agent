@@ -195,4 +195,28 @@ describe('buildContext', () => {
     // Total should be 3 (merged user + assistant + user), not 4
     expect(result.messages.length).toBe(3);
   });
+
+  it('should propagate _pinned flag from pinned ChatMessage to LLMMessage (issue #1)', () => {
+    // A skill tool result is stored in SQLite with pinned=true.
+    // When loaded back and converted to LLMMessage, _pinned must be set so that
+    // autocompact / snipCompact honour it in resumed sessions.
+    const pinnedTool: ChatMessage = { role: 'tool', content: 'skill output', pinned: true, toolCallId: 'tc1', createdAt: 1 };
+    const unpinnedTool: ChatMessage = { role: 'tool', content: 'regular output', pinned: false, toolCallId: 'tc2', createdAt: 2 };
+
+    const result = buildContext({
+      systemPrompt: '',
+      injections: [],
+      history: [pinnedTool, unpinnedTool],
+      maxTokens: 10000,
+      reserveTokens: 0,
+      maxPinnedMessages: 20,
+    });
+
+    const llmPinned = result.messages.find(m => m.tool_call_id === 'tc1');
+    const llmUnpinned = result.messages.find(m => m.tool_call_id === 'tc2');
+
+    expect(llmPinned).toBeDefined();
+    expect((llmPinned as unknown as Record<string, unknown>)._pinned).toBe(true);
+    expect((llmUnpinned as unknown as Record<string, unknown>)._pinned).toBeUndefined();
+  });
 });

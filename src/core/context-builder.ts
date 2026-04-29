@@ -140,6 +140,11 @@ function chatMessageToLLM(msg: ChatMessage): LLMMessage {
     result.tool_call_id = msg.toolCallId;
   }
 
+  // Propagate pinned status so autocompact/snipCompact honour it in resumed sessions.
+  if (msg.pinned) {
+    (result as unknown as Record<string, unknown>)._pinned = true;
+  }
+
   return result;
 }
 

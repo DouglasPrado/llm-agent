@@ -352,10 +352,12 @@ export class Agent {
       }, threadId);
 
       for (const tr of pendingToolResults) {
+        const isSkillTool = pendingToolCalls.some(tc => tc.id === tr.toolCallId && tc.name === SKILL_TOOL_NAME);
         this.conversations.appendMessage({
           role: 'tool' as MessageRole,
           content: tr.content,
           toolCallId: tr.toolCallId,
+          pinned: isSkillTool || undefined,
           createdAt: now - 1,
         }, threadId);
       }
