@@ -20,6 +20,7 @@ interface TrackedTool {
   id: string;
   name: string;
   args: string;
+  parsedArgs: unknown;
   isSafe: boolean;
   status: ToolStatus;
   result?: AgentToolResult;
@@ -59,7 +60,7 @@ export class StreamingToolExecutor {
         : toolDef.isConcurrencySafe === true
       : false;
 
-    const tracked: TrackedTool = { id, name, args, isSafe, status: 'queued', progressEvents: [] };
+    const tracked: TrackedTool = { id, name, args, parsedArgs, isSafe, status: 'queued', progressEvents: [] };
     this.tools.push(tracked);
     void this.processQueue();
   }
@@ -160,9 +161,7 @@ export class StreamingToolExecutor {
 
   private async executeTool(tracked: TrackedTool): Promise<void> {
     const start = Date.now();
-
-    let parsedArgs: unknown;
-    try { parsedArgs = JSON.parse(tracked.args); } catch { parsedArgs = {}; }
+    const { parsedArgs } = tracked;
 
     // Build progress callback that accumulates events
     const onProgress = (data: Record<string, unknown>) => {
