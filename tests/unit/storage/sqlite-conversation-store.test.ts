@@ -96,6 +96,17 @@ describe('SQLiteConversationStore', () => {
     expect(store.listThread('nonexistent')).toHaveLength(0);
   });
 
+  it('should throw on invalid role value from database (issue #5)', () => {
+    // If the SQLite file is manually edited or corrupted, an invalid role must be
+    // caught at the storage boundary — not propagated silently to the LLM layer.
+    database.db.prepare(`
+      INSERT INTO conversations (thread_id, role, content, tool_calls, tool_call_id, pinned, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('t-badrole', 'INVALID_ROLE', 'hello', null, null, 0, Date.now());
+
+    expect(() => store.listThread('t-badrole')).toThrow(/Invalid message role/);
+  });
+
   it('should order messages by created_at', () => {
     store.appendMessage({ ...msg('user', 'first'), createdAt: 100 }, 'thread-1');
     store.appendMessage({ ...msg('user', 'third'), createdAt: 300 }, 'thread-1');

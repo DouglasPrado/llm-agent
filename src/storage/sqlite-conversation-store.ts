@@ -46,7 +46,13 @@ export class SQLiteConversationStore implements ConversationStore {
   }
 }
 
+const VALID_ROLES = new Set<string>(['user', 'assistant', 'system', 'tool']);
+
 function rowToMessage(row: ConversationRow): ChatMessage {
+  if (!VALID_ROLES.has(row.role)) {
+    throw new Error(`Invalid message role in database: "${row.role}"`);
+  }
+
   let content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
   try {
     const parsed = JSON.parse(row.content);
