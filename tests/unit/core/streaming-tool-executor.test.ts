@@ -270,6 +270,46 @@ describe('StreamingToolExecutor', () => {
     expect(results).toHaveLength(2);
   });
 
+  it('should parse tool args exactly once per tool call (issue #3)', async () => {
+    // Double JSON.parse wastes CPU and creates inconsistency when JSON is malformed.
+    // parsedArgs computed in addTool() must be reused in executeTool() without re-parsing.
+    const executor = new ToolExecutor();
+    const receivedArgs: unknown[] = [];
+
+    executor.register(createTool({
+      name: 'probe',
+      parameters: z.object({ input: z.string() }),
+      isConcurrencySafe: (args: unknown) => {
+        receivedArgs.push(args);
+        return true;
+      },
+      execute: vi.fn().mockImplementation((args: unknown) => {
+        receivedArgs.push(args);
+        return Promise.resolve('ok');
+      }),
+    }));
+
+    let parseCount = 0;
+    const origParse = JSON.parse;
+    vi.spyOn(JSON, 'parse').mockImplementation((text: string) => {
+      parseCount++;
+      return origParse(text);
+    });
+
+    const streaming = new StreamingToolExecutor(executor);
+    streaming.addTool('c1', 'probe', '{"input":"hello"}');
+    for await (const _ of streaming.getRemainingResults()) { /* drain */ }
+
+    vi.restoreAllMocks();
+
+    // Should parse args only once — not twice (addTool + executeTool)
+    expect(parseCount).toBe(1);
+    // Both isConcurrencySafe and execute should receive the same parsed object
+    expect(receivedArgs).toHaveLength(2);
+    expect(receivedArgs[0]).toEqual({ input: 'hello' });
+    expect(receivedArgs[1]).toEqual({ input: 'hello' });
+  });
+
   it('getCompletedResults should be non-blocking and yield only finished tools', async () => {
     const executor = new ToolExecutor();
     executor.register(createTool({
