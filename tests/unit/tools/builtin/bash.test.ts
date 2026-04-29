@@ -45,4 +45,35 @@ describe('builtin/bash', () => {
     expect(content).toContain('line1');
     expect(content).toContain('line2');
   });
+
+  describe('timeout parameter bounds (issue #9)', () => {
+    it('should reject timeout=0 (would disable exec timeout)', async () => {
+      const tool = createBashTool();
+      // timeout=0 is interpreted by Node exec as "no timeout" — must be rejected
+      await expect(
+        tool.execute({ command: 'echo ok', timeout: 0 }, signal)
+      ).rejects.toThrow();
+    });
+
+    it('should reject negative timeout values', async () => {
+      const tool = createBashTool();
+      await expect(
+        tool.execute({ command: 'echo ok', timeout: -1000 }, signal)
+      ).rejects.toThrow();
+    });
+
+    it('should reject timeout exceeding 300000ms (5 minutes)', async () => {
+      const tool = createBashTool();
+      await expect(
+        tool.execute({ command: 'echo ok', timeout: 301_000 }, signal)
+      ).rejects.toThrow();
+    });
+
+    it('should accept valid timeout within bounds', async () => {
+      const tool = createBashTool();
+      const result = await tool.execute({ command: 'echo ok', timeout: 5000 }, signal);
+      const content = typeof result === 'string' ? result : result.content;
+      expect(content).toContain('ok');
+    });
+  });
 });
