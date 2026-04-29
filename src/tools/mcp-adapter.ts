@@ -280,7 +280,9 @@ export class MCPAdapter {
   }
 
   private convertTool(serverName: string, mcpTool: MCPToolDef, client: MCPClient, config: MCPConnectionConfig): AgentTool {
-    const namespacedName = `mcp__${serverName}__${mcpTool.name}`;
+    const safeServerName = serverName.replace(/__/g, '_');
+    const safeToolName = mcpTool.name.replace(/__/g, '_');
+    const namespacedName = `mcp__${safeServerName}__${safeToolName}`;
     const parameters = jsonSchemaToZod(mcpTool.inputSchema as Record<string, unknown> | undefined);
     const isolateErrors = config.isolateErrors ?? true;
     const timeout = config.timeout ?? 30_000;

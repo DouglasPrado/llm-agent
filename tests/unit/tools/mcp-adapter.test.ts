@@ -674,4 +674,39 @@ describe('MCPAdapter', () => {
       expect(tools).toHaveLength(2);
     });
   });
+
+  describe('namespace collision (issue #2)', () => {
+    it('should sanitize __ in serverName to prevent namespace collision', async () => {
+      mockClient.listTools.mockResolvedValueOnce({
+        tools: [{ name: 'baz', description: 'tool', inputSchema: { type: 'object', properties: {} } }],
+      });
+
+      // server "foo__bar" + tool "baz" must NOT produce same name as server "foo" + tool "bar__baz"
+      const tools = await adapter.connect({
+        name: 'foo__bar',
+        transport: 'stdio',
+        command: 'node',
+        args: ['s.js'],
+      });
+
+      // After sanitization: mcp__foo_bar__baz (single underscore replaces __)
+      expect(tools[0]!.name).toBe('mcp__foo_bar__baz');
+    });
+
+    it('should sanitize __ in toolName to prevent namespace collision', async () => {
+      mockClient.listTools.mockResolvedValueOnce({
+        tools: [{ name: 'bar__baz', description: 'tool', inputSchema: { type: 'object', properties: {} } }],
+      });
+
+      const tools = await adapter.connect({
+        name: 'foo',
+        transport: 'stdio',
+        command: 'node',
+        args: ['s.js'],
+      });
+
+      // After sanitization: mcp__foo__bar_baz (__ in tool name collapsed to _)
+      expect(tools[0]!.name).toBe('mcp__foo__bar_baz');
+    });
+  });
 });
