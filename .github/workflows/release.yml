@@ -4,14 +4,44 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
     # Skip CI commits to avoid infinite loop
     if: "!startsWith(github.event.head_commit.message, 'chore: release')"
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    # Manual approval required via Settings → Environments → npm-publish → Required reviewers
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write  # Required for npm provenance attestation
 
     steps:
       - uses: actions/checkout@v4
@@ -33,9 +63,6 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Run tests
-        run: pnpm test
 
       - name: Determine version bump
         id: bump
@@ -71,7 +98,7 @@ jobs:
           git push origin main --follow-tags
 
       - name: Publish to npm
-        run: npm publish --access public
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
