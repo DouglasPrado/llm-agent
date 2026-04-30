@@ -312,6 +312,40 @@ describe('LLMClient', () => {
     });
   });
 
+  describe('timeoutMs config (issue #29)', () => {
+    it('should use configured timeoutMs instead of hardcoded 120s', async () => {
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const customClient = new LLMClient({ apiKey: 'test-key', model: 'test/model', baseUrl: 'https://api.test.com/v1', timeoutMs: 5_000 } as any);
+
+      mockFetch(new Response(JSON.stringify({
+        choices: [{ message: { content: 'Hi' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      }), { status: 200 }));
+
+      await customClient.chat({ messages: [{ role: 'user', content: 'Hi' }] });
+
+      // With current code: AbortSignal.timeout is always called with 120_000
+      // After fix: AbortSignal.timeout is called with 5_000
+      expect(timeoutSpy).toHaveBeenCalledWith(5_000);
+      expect(timeoutSpy).not.toHaveBeenCalledWith(120_000);
+    });
+
+    it('should default to 120s when timeoutMs is not configured', async () => {
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+
+      mockFetch(new Response(JSON.stringify({
+        choices: [{ message: { content: 'Hi' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      }), { status: 200 }));
+
+      await client.chat({ messages: [{ role: 'user', content: 'Hi' }] });
+
+      expect(timeoutSpy).toHaveBeenCalledWith(120_000);
+    });
+  });
+
   describe('reasoning', () => {
     it('should convert system messages for o1 models', async () => {
       const o1Client = new LLMClient({ apiKey: 'test', model: 'openai/o1-preview', baseUrl: 'https://api.test.com/v1' });

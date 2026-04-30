@@ -13,6 +13,7 @@ export interface LLMClientConfig {
   apiKey: string;
   model: string;
   baseUrl?: string;
+  timeoutMs?: number;
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -40,17 +41,18 @@ function sanitizeErrorBody(text: string): string {
  * own signal and handle failures at the call site.
  */
 export class LLMClient {
-  /** Default request timeout when caller provides no AbortSignal. */
   private static readonly DEFAULT_TIMEOUT_MS = 120_000;
 
   private readonly apiKey: string;
   private readonly model: string;
   private readonly baseUrl: string;
+  private readonly timeoutMs: number;
 
   constructor(config: LLMClientConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.baseUrl = (config.baseUrl ?? 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+    this.timeoutMs = config.timeoutMs ?? LLMClient.DEFAULT_TIMEOUT_MS;
   }
 
   async *streamChat(params: StreamChatParams): AsyncIterableIterator<StreamChunk> {
@@ -173,8 +175,8 @@ export class LLMClient {
   }
 
   private async fetchAPI(path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
-    // Always apply a default timeout; compose with the caller-provided signal if any.
-    const signals: AbortSignal[] = [AbortSignal.timeout(LLMClient.DEFAULT_TIMEOUT_MS)];
+    // Always apply a timeout; compose with the caller-provided signal if any.
+    const signals: AbortSignal[] = [AbortSignal.timeout(this.timeoutMs)];
     if (signal) signals.push(signal);
     const effectiveSignal = AbortSignal.any(signals);
 
