@@ -5,12 +5,33 @@ import type { MCPConnectionConfig } from '../config/config.js';
 import type { ToolExecutor } from './tool-executor.js';
 import { jsonSchemaToZod } from './json-schema-to-zod.js';
 
+/** Validated shape of listResources server response. */
+const ListResourcesResultSchema = z.object({
 const MCPResourceListSchema = z.object({
   resources: z.array(z.object({
     uri: z.string(),
     name: z.string(),
     mimeType: z.string().optional(),
     description: z.string().optional(),
+  }).passthrough()),
+});
+
+/** Validated shape of readResource server response. */
+const ReadResourceResultSchema = z.object({
+  contents: z.array(z.object({
+    text: z.string().optional(),
+    uri: z.string(),
+  }).passthrough()),
+});
+
+/** Validated shape of getPrompt server response. */
+const GetPromptResultSchema = z.object({
+  messages: z.array(z.object({
+    role: z.string(),
+    content: z.union([
+      z.string(),
+      z.object({ type: z.string(), text: z.string().optional() }).passthrough(),
+    ]),
   })),
 });
 
@@ -247,13 +268,12 @@ export class MCPAdapter {
     if (!conn || conn.status !== 'connected') return [];
 
     try {
-      const rawResult = await (conn.client as unknown as {
+      const raw = await (conn.client as unknown as {
         listResources?: () => Promise<unknown>;
       }).listResources?.();
-      if (!rawResult) return [];
-      const parsed = MCPResourceListSchema.safeParse(rawResult);
-      if (!parsed.success) return [];
-      return parsed.data.resources.map(r => ({ ...r, serverName }));
+      if (!raw) return [];
+      const parsed = ListResourcesResultSchema.parse(raw);
+      return parsed.resources.map(r => ({ ...r, serverName }));
     } catch {
       return [];
     }
@@ -266,15 +286,13 @@ export class MCPAdapter {
       throw new Error(`MCP server "${serverName}" not connected`);
     }
 
-    const rawResult = await (conn.client as unknown as {
+    const raw = await (conn.client as unknown as {
       readResource?: (params: { uri: string }) => Promise<unknown>;
     }).readResource?.({ uri });
-    if (!rawResult) throw new Error('Server does not support resources');
+    if (!raw) throw new Error('Server does not support resources');
 
-    const parsed = MCPResourceReadSchema.safeParse(rawResult);
-    if (!parsed.success) throw new Error(`MCP server returned invalid resource shape: ${parsed.error.message}`);
-
-    return parsed.data.contents.map(c => c.text ?? `[Binary: ${c.uri}]`).join('\n');
+    const parsed = ReadResourceResultSchema.parse(raw);
+    return parsed.contents.map(c => c.text ?? `[Binary: ${c.uri}]`).join('\n');
   }
 
   /** Fetch and return a prompt from a server (for skill getPrompt). */
@@ -292,16 +310,14 @@ export class MCPAdapter {
       }
     }
 
-    const rawResult = await (conn.client as unknown as {
+    const raw = await (conn.client as unknown as {
       getPrompt?: (params: { name: string; arguments?: Record<string, string> }) => Promise<unknown>;
     }).getPrompt?.({ name: promptName, arguments: parsedArgs });
 
-    if (!rawResult) throw new Error('Server does not support prompts');
+    if (!raw) throw new Error('Server does not support prompts');
 
-    const parsed = MCPGetPromptSchema.safeParse(rawResult);
-    if (!parsed.success) throw new Error(`MCP server returned invalid prompt shape: ${parsed.error.message}`);
-
-    return parsed.data.messages.map(m => {
+    const parsed = GetPromptResultSchema.parse(raw);
+    return parsed.messages.map(m => {
       const content = typeof m.content === 'string' ? m.content : m.content.text ?? '';
       return content;
     }).join('\n');

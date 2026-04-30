@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ZodError } from 'zod';
 import { MCPAdapter, type MCPHealthStatus } from '../../../src/tools/mcp-adapter.js';
 import type { ToolExecutor } from '../../../src/tools/tool-executor.js';
 
@@ -615,6 +616,51 @@ describe('MCPAdapter', () => {
       await adapter.connect({ name: 'notext', transport: 'stdio', command: 'node' });
       const result = await adapter.getPrompt('notext', 'p');
       expect(result).toBe('');
+
+      delete (mockClient as Record<string, unknown>).getPrompt;
+    });
+  });
+
+  describe('Zod validation of server responses (issue #28)', () => {
+    it('listResources should return empty when resource is missing required uri field', async () => {
+      (mockClient as Record<string, unknown>).listResources = vi.fn().mockResolvedValue({
+        resources: [{ name: 'no-uri-here' }], // uri is required but missing
+      });
+
+      await adapter.connect({ name: 'zod-res', transport: 'stdio', command: 'node' });
+      const result = await adapter.listResources('zod-res');
+
+      // Without Zod: returns [{ name: 'no-uri-here', uri: undefined, serverName: 'zod-res' }]
+      // With Zod: parse fails → catch returns []
+      expect(result).toHaveLength(0);
+
+      delete (mockClient as Record<string, unknown>).listResources;
+    });
+
+    it('readResource should throw ZodError when contents is not an array', async () => {
+      (mockClient as Record<string, unknown>).readResource = vi.fn().mockResolvedValue({
+        contents: 'not-an-array',
+      });
+
+      await adapter.connect({ name: 'zod-read', transport: 'stdio', command: 'node' });
+
+      // Without Zod: throws TypeError ('not-an-array'.map is not a function)
+      // With Zod: throws ZodError with descriptive validation message
+      await expect(adapter.readResource('zod-read', 'file:///x')).rejects.toBeInstanceOf(ZodError);
+
+      delete (mockClient as Record<string, unknown>).readResource;
+    });
+
+    it('getPrompt should throw ZodError when messages is not an array', async () => {
+      (mockClient as Record<string, unknown>).getPrompt = vi.fn().mockResolvedValue({
+        messages: 'not-an-array',
+      });
+
+      await adapter.connect({ name: 'zod-prompt', transport: 'stdio', command: 'node' });
+
+      // Without Zod: throws TypeError ('not-an-array'.map is not a function)
+      // With Zod: throws ZodError with descriptive validation message
+      await expect(adapter.getPrompt('zod-prompt', 'p')).rejects.toBeInstanceOf(ZodError);
 
       delete (mockClient as Record<string, unknown>).getPrompt;
     });
