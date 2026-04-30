@@ -675,6 +675,46 @@ describe('MCPAdapter', () => {
     });
   });
 
+  describe('Zod validation in readResource / getPrompt / listResources (issue #28)', () => {
+    it('readResource should throw clear error when server returns invalid shape', async () => {
+      (mockClient as Record<string, unknown>).readResource = vi.fn().mockResolvedValue({
+        notContents: 'unexpected',  // missing required `contents` array
+      });
+
+      await adapter.connect({ name: 'bad-read', transport: 'stdio', command: 'node' });
+
+      await expect(adapter.readResource('bad-read', 'file:///x.txt'))
+        .rejects.toThrow(/invalid.*shape|invalid resource/i);
+
+      delete (mockClient as Record<string, unknown>).readResource;
+    });
+
+    it('getPrompt should throw clear error when server returns invalid shape', async () => {
+      (mockClient as Record<string, unknown>).getPrompt = vi.fn().mockResolvedValue({
+        notMessages: 'unexpected',  // missing required `messages` array
+      });
+
+      await adapter.connect({ name: 'bad-prompt', transport: 'stdio', command: 'node' });
+
+      await expect(adapter.getPrompt('bad-prompt', 'p'))
+        .rejects.toThrow(/invalid.*shape|invalid prompt/i);
+
+      delete (mockClient as Record<string, unknown>).getPrompt;
+    });
+
+    it('listResources should return empty when server returns invalid shape', async () => {
+      (mockClient as Record<string, unknown>).listResources = vi.fn().mockResolvedValue({
+        notResources: 'unexpected',  // missing required `resources` array
+      });
+
+      await adapter.connect({ name: 'bad-list', transport: 'stdio', command: 'node' });
+      const result = await adapter.listResources('bad-list');
+      expect(result).toEqual([]);  // graceful fallback for list operation
+
+      delete (mockClient as Record<string, unknown>).listResources;
+    });
+  });
+
   describe('namespace collision (issue #2)', () => {
     it('should sanitize __ in serverName to prevent namespace collision', async () => {
       mockClient.listTools.mockResolvedValueOnce({
