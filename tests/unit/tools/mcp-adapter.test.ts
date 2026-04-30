@@ -675,6 +675,84 @@ describe('MCPAdapter', () => {
     });
   });
 
+  describe('healthCheck race condition (issue #24)', () => {
+    it('concurrent healthCheck fires should not start multiple reconnect attempts', async () => {
+      // Regression test: if healthCheck fires while a reconnect is in progress,
+      // only ONE reconnect process should be active (status window elimination).
+      vi.useFakeTimers();
+
+      let reconnectConnectCalls = 0;
+      mockClient.listTools
+        .mockResolvedValueOnce({ tools: [] }) // initial connect
+        .mockRejectedValue(new Error('conn lost')); // all health checks fail
+      mockClient.connect
+        .mockResolvedValueOnce(undefined) // initial connect succeeds
+        .mockImplementation(async () => {
+          reconnectConnectCalls++;
+        });
+
+      await adapter.connect({
+        name: 'hc-race',
+        transport: 'stdio',
+        command: 'node',
+        healthCheckInterval: 100,
+        maxRetries: 1, // one reconnect attempt per reconnect cycle
+      });
+
+      // Advance 200ms: healthCheck fires at 100ms and 200ms.
+      // Both fail → buggy code starts TWO reconnect processes;
+      // fixed code starts ONE (second healthCheck returns early).
+      await vi.advanceTimersByTimeAsync(200);
+
+      // Advance past reconnect delays: first attempt delay=1000ms (starts at 100ms, fires at 1100ms);
+      // a second reconnect (if started at 200ms) fires at 1200ms.
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // Fixed code: exactly 1 reconnect connect call (one process, one attempt).
+      // Buggy code: 2 reconnect connect calls (two concurrent processes, one attempt each).
+      expect(reconnectConnectCalls).toBe(1);
+
+      vi.useRealTimers();
+      await adapter.disconnectAll();
+    });
+
+    it('healthCheck while reconnecting should skip (status stays reconnecting)', async () => {
+      // After the first healthCheck failure, status should go to 'reconnecting'.
+      // A subsequent healthCheck must NOT overwrite it back to 'error' nor spawn a second reconnect.
+      vi.useFakeTimers();
+
+      mockClient.listTools
+        .mockResolvedValueOnce({ tools: [] })
+        .mockRejectedValue(new Error('conn lost'));
+      mockClient.connect
+        .mockResolvedValueOnce(undefined) // initial
+        .mockImplementation(async () => { /* reconnect — completes */ });
+
+      await adapter.connect({
+        name: 'hc-status',
+        transport: 'stdio',
+        command: 'node',
+        healthCheckInterval: 100,
+        maxRetries: 1,
+      });
+
+      // Fire first health check — should transition to 'reconnecting'
+      await vi.advanceTimersByTimeAsync(100);
+
+      // Fire second health check while first reconnect's delay is pending
+      // Fixed code: guard at top of healthCheck skips; status stays 'reconnecting'.
+      // Buggy code: listTools fails → status set to 'error' (briefly) then reconnecting again.
+      await vi.advanceTimersByTimeAsync(100);
+
+      // After the second fire, status must still be 'reconnecting' (not 'error')
+      const status = adapter.getHealth().servers.find(s => s.name === 'hc-status')?.status;
+      expect(status).toBe('reconnecting');
+
+      vi.useRealTimers();
+      await adapter.disconnectAll();
+    });
+  });
+
   describe('namespace collision (issue #2)', () => {
     it('should sanitize __ in serverName to prevent namespace collision', async () => {
       mockClient.listTools.mockResolvedValueOnce({

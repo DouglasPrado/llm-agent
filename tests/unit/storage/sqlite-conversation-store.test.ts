@@ -81,15 +81,17 @@ describe('SQLiteConversationStore', () => {
     expect(messages[1]!.toolCallId).toBe('tc1');
   });
 
-  it('should return undefined toolCalls for corrupt tool_calls JSON', () => {
+  // --- issue #25: corrupted tool_calls must not be silently discarded ---
+
+  it('should throw on corrupted tool_calls JSON (not silently discard)', () => {
+    // Simulates a row written by a partial write, migration error, or manual DB edit.
     database.db.prepare(`
       INSERT INTO conversations (thread_id, role, content, tool_calls, tool_call_id, pinned, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('t-corrupt', 'assistant', '""', 'NOT_VALID_JSON{{{', null, 0, Date.now());
 
-    const messages = store.listThread('t-corrupt');
-    expect(messages).toHaveLength(1);
-    expect(messages[0]!.toolCalls).toBeUndefined();
+    // Must throw with context (row id + thread id) so operators can diagnose the issue.
+    expect(() => store.listThread('t-corrupt')).toThrow(/tool_calls|Corrupted/i);
   });
 
   it('should warn via console.warn when tool_calls JSON is corrupt (issue #25)', () => {
