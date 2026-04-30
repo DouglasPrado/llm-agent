@@ -342,6 +342,19 @@ describe('StreamingToolExecutor', () => {
         for await (const _ of streaming.getRemainingResults()) { /* drain */ }
       }).rejects.toThrow(/result.*duration|not set/i);
     });
+  it('getCompletedResults should skip tool with undefined result despite completed status (issue #27)', () => {
+    const executor = new ToolExecutor();
+    const streaming = new StreamingToolExecutor(executor);
+
+    // Simulate invariant violation: status='completed' but result/duration not set
+    (streaming as unknown as { tools: unknown[] }).tools.push({
+      id: 'broken', name: 'test', args: '{}', parsedArgs: {},
+      isSafe: false, status: 'completed', result: undefined, duration: undefined, progressEvents: [],
+    });
+
+    const results = [...streaming.getCompletedResults()];
+    // Guard must skip this tool rather than yielding result: undefined
+    expect(results).toHaveLength(0);
   });
 
   it('getCompletedResults should be non-blocking and yield only finished tools', async () => {

@@ -76,12 +76,9 @@ export class StreamingToolExecutor {
           throw new Error(`Tool "${tool.id}" completed but result or duration not set`);
         }
         tool.status = 'yielded';
-        yield {
-          id: tool.id,
-          name: tool.name,
-          result: tool.result,
-          duration: tool.duration,
-        };
+        if (tool.result !== undefined && tool.duration !== undefined) {
+          yield { id: tool.id, name: tool.name, result: tool.result, duration: tool.duration };
+        }
       } else if (tool.status !== 'yielded') {
         break;
       }
@@ -115,12 +112,9 @@ export class StreamingToolExecutor {
       }
 
       tool.status = 'yielded';
-      yield {
-        id: tool.id,
-        name: tool.name,
-        result: tool.result,
-        duration: tool.duration,
-      };
+      if (tool.result !== undefined && tool.duration !== undefined) {
+        yield { id: tool.id, name: tool.name, result: tool.result, duration: tool.duration };
+      }
     }
   }
 

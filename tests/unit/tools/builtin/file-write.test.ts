@@ -57,4 +57,45 @@ describe('builtin/file-write', () => {
     const content = typeof result === 'string' ? result : result.content;
     expect(content).toContain('3 bytes');
   });
+
+  // --- issue #22: path traversal protection ---
+
+  it('blocks path traversal outside workingDir', async () => {
+    const tool = createFileWriteTool(tempDir);
+    const result = await tool.execute({
+      file_path: join(tempDir, '..', 'escape.txt'),
+      content: 'pwned',
+    }, signal);
+    const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+    expect(parsed.isError).toBe(true);
+    expect(parsed.content).toMatch(/[Tt]raversal|[Bb]locked|outside/);
+  });
+
+  it('blocks absolute path outside workingDir', async () => {
+    const tool = createFileWriteTool(tempDir);
+    const result = await tool.execute({
+      file_path: '/etc/passwd',
+      content: 'pwned',
+    }, signal);
+    const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+    expect(parsed.isError).toBe(true);
+  });
+
+  it('allows write inside workingDir when workingDir is set', async () => {
+    const tool = createFileWriteTool(tempDir);
+    const result = await tool.execute({
+      file_path: join(tempDir, 'safe.txt'),
+      content: 'ok',
+    }, signal);
+    const content = typeof result === 'string' ? result : result.content;
+    expect(content).not.toMatch(/[Tt]raversal|[Bb]locked/);
+  });
+
+  it('allows any path when no workingDir is set (backward compat)', async () => {
+    const tool = createFileWriteTool();
+    const filePath = join(tempDir, 'no-guard.txt');
+    const result = await tool.execute({ file_path: filePath, content: 'ok' }, signal);
+    const content = typeof result === 'string' ? result : result.content;
+    expect(content).toContain('bytes');
+  });
 });

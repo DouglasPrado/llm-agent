@@ -88,4 +88,51 @@ describe('builtin/file-edit', () => {
     const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
     expect(parsed.isError).toBe(true);
   });
+
+  // --- issue #22: path traversal protection ---
+
+  it('blocks path traversal outside workingDir', async () => {
+    const tool = createFileEditTool(tempDir);
+    const result = await tool.execute({
+      file_path: join(tempDir, '..', 'code.ts'),
+      old_string: 'x',
+      new_string: 'y',
+    }, signal);
+    const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+    expect(parsed.isError).toBe(true);
+    expect(parsed.content).toMatch(/[Tt]raversal|[Bb]locked|outside/);
+  });
+
+  it('blocks absolute path outside workingDir', async () => {
+    const tool = createFileEditTool(tempDir);
+    const result = await tool.execute({
+      file_path: '/etc/hosts',
+      old_string: 'localhost',
+      new_string: 'evil',
+    }, signal);
+    const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+    expect(parsed.isError).toBe(true);
+  });
+
+  it('allows edit inside workingDir when workingDir is set', async () => {
+    const tool = createFileEditTool(tempDir);
+    const result = await tool.execute({
+      file_path: join(tempDir, 'code.ts'),
+      old_string: 'return "world"',
+      new_string: 'return "hello"',
+    }, signal);
+    const content = typeof result === 'string' ? result : result.content;
+    expect(content).not.toMatch(/[Tt]raversal|[Bb]locked/);
+  });
+
+  it('allows any path when no workingDir is set (backward compat)', async () => {
+    const tool = createFileEditTool();
+    const result = await tool.execute({
+      file_path: join(tempDir, 'code.ts'),
+      old_string: 'return "world"',
+      new_string: 'return "hello"',
+    }, signal);
+    const content = typeof result === 'string' ? result : result.content;
+    expect(content).not.toMatch(/[Tt]raversal|[Bb]locked/);
+  });
 });

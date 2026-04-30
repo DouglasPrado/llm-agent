@@ -97,5 +97,70 @@ describe('builtin/web-fetch', () => {
         expect(parsed.isError, `should block ${url}`).toBe(true);
       }
     });
+
+    // --- issue #21: redirect bypass and IPv6 private ranges ---
+
+    it('blocks redirect to internal IPv4 (SSRF via redirect)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(null, {
+          status: 301,
+          headers: { Location: 'http://169.254.169.254/latest/meta-data/' },
+        }),
+      );
+      const result = await tool.execute({ url: 'https://example.com/redirect' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+      expect(parsed.content).toMatch(/[Rr]edirect|[Bb]locked/);
+    });
+
+    it('blocks redirect to private range 10.x.x.x (SSRF via redirect)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { Location: 'http://10.0.0.1/internal' },
+        }),
+      );
+      const result = await tool.execute({ url: 'https://example.com/redir2' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('blocks IPv6 ULA addresses (fc00::/7)', async () => {
+      for (const url of ['http://[fc00::1]/', 'http://[fd12:3456:789a::1]/']) {
+        const result = await tool.execute({ url }, signal);
+        const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+        expect(parsed.isError, `should block ${url}`).toBe(true);
+      }
+    });
+
+    it('blocks IPv6 link-local addresses (fe80::/10)', async () => {
+      const result = await tool.execute({ url: 'http://[fe80::1%25eth0]/' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('blocks IPv4-mapped IPv6 for private ranges', async () => {
+      for (const url of ['http://[::ffff:10.0.0.1]/', 'http://[::ffff:192.168.1.1]/']) {
+        const result = await tool.execute({ url }, signal);
+        const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+        expect(parsed.isError, `should block ${url}`).toBe(true);
+      }
+    });
+
+    it('allows valid redirect to safe HTTPS URL', async () => {
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          new Response(null, {
+            status: 301,
+            headers: { Location: 'https://example.com/final' },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response('safe content', { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+        );
+      const result = await tool.execute({ url: 'https://example.com/old' }, signal);
+      const content = typeof result === 'string' ? result : result.content;
+      expect(content).toContain('safe content');
+    });
   });
 });

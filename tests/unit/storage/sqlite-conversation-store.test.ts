@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SQLiteDatabase } from '../../../src/storage/sqlite-database.js';
 import { SQLiteConversationStore } from '../../../src/storage/sqlite-conversation-store.js';
 import type { ChatMessage } from '../../../src/contracts/entities/chat-message.js';
@@ -81,15 +81,33 @@ describe('SQLiteConversationStore', () => {
     expect(messages[1]!.toolCallId).toBe('tc1');
   });
 
-  it('should return undefined toolCalls for corrupt tool_calls JSON', () => {
+  // --- issue #25: corrupted tool_calls must not be silently discarded ---
+
+  it('should throw on corrupted tool_calls JSON (not silently discard)', () => {
+    // Simulates a row written by a partial write, migration error, or manual DB edit.
     database.db.prepare(`
       INSERT INTO conversations (thread_id, role, content, tool_calls, tool_call_id, pinned, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('t-corrupt', 'assistant', '""', 'NOT_VALID_JSON{{{', null, 0, Date.now());
 
-    const messages = store.listThread('t-corrupt');
-    expect(messages).toHaveLength(1);
-    expect(messages[0]!.toolCalls).toBeUndefined();
+    // Must throw with context (row id + thread id) so operators can diagnose the issue.
+    expect(() => store.listThread('t-corrupt')).toThrow(/tool_calls|Corrupted/i);
+  });
+
+  it('should warn via console.warn when tool_calls JSON is corrupt (issue #25)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    database.db.prepare(`
+      INSERT INTO conversations (thread_id, role, content, tool_calls, tool_call_id, pinned, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('t-corrupt-warn', 'assistant', '""', 'NOT_VALID_JSON{{{', null, 0, Date.now());
+
+    store.listThread('t-corrupt-warn');
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const [firstArg] = warnSpy.mock.calls[0]!;
+    expect(firstArg).toMatch(/SQLiteConversationStore/);
+    expect(firstArg).toMatch(/tool_calls/);
+    warnSpy.mockRestore();
   });
 
   it('should return empty array for unknown thread', () => {

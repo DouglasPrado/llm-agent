@@ -133,4 +133,45 @@ describe('Agent', () => {
     expect(typeof filename).toBe('string');
     expect(filename).toMatch(/\.md$/);
   });
+
+  it('should emit console.warn (not debug) when memoryDir initialization fails (issue #30)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // /dev/null/memory is always uncreateable (ENOTDIR) — forces ensureDir() to fail
+    Agent.create({
+      apiKey: 'test-key',
+      logLevel: 'info',  // info threshold: debug is suppressed, warn is emitted
+      memory: { enabled: true, memoryDir: '/dev/null/memory' },
+      knowledge: { enabled: false },
+    });
+
+    // Fire-and-forget — let the promise settle
+    await new Promise(r => setTimeout(r, 100));
+
+    const memoryWarn = warnSpy.mock.calls.find(c => String(c[0]).toLowerCase().includes('memory'));
+    expect(memoryWarn).toBeDefined();
+    warnSpy.mockRestore();
+  });
+
+  it('should emit console.warn (not debug) when skillsDir loading fails (issue #30)', async () => {
+    const { SkillManager } = await import('../../src/skills/skill-manager.js');
+    const loadSpy = vi.spyOn(SkillManager.prototype, 'loadFromDirectory')
+      .mockRejectedValue(new Error('EACCES: permission denied'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    Agent.create({
+      apiKey: 'test-key',
+      logLevel: 'info',
+      memory: { enabled: false },
+      knowledge: { enabled: false },
+      skills: { skillsDir: '/some/restricted/skills' },
+    });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    const skillsWarn = warnSpy.mock.calls.find(c => String(c[0]).toLowerCase().includes('skill'));
+    expect(skillsWarn).toBeDefined();
+    loadSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
 });

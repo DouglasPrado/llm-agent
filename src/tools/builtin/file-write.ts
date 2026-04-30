@@ -2,13 +2,14 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { z } from 'zod';
 import type { AgentTool } from '../../contracts/entities/agent-tool.js';
+import { assertSafePath } from './path-guard.js';
 
 const FileWriteParams = z.object({
   file_path: z.string().describe('Absolute path to the file to write'),
   content: z.string().describe('Content to write to the file'),
 });
 
-export function createFileWriteTool(): AgentTool {
+export function createFileWriteTool(workingDir?: string): AgentTool {
   return {
     name: 'Write',
     description: 'Write content to a file. Creates parent directories if needed. Overwrites existing files.',
@@ -18,6 +19,14 @@ export function createFileWriteTool(): AgentTool {
 
     async execute(rawArgs: unknown) {
       const { file_path, content } = rawArgs as z.infer<typeof FileWriteParams>;
+
+      if (workingDir) {
+        try {
+          assertSafePath(file_path, workingDir);
+        } catch (error) {
+          return { content: (error as Error).message, isError: true };
+        }
+      }
 
       try {
         await mkdir(dirname(file_path), { recursive: true });

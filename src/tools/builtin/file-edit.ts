@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { AgentTool } from '../../contracts/entities/agent-tool.js';
+import { assertSafePath } from './path-guard.js';
 
 const FileEditParams = z.object({
   file_path: z.string().describe('Absolute path to the file to edit'),
@@ -9,7 +10,7 @@ const FileEditParams = z.object({
   replace_all: z.boolean().optional().describe('Replace all occurrences. Default: false (must be unique).'),
 });
 
-export function createFileEditTool(): AgentTool {
+export function createFileEditTool(workingDir?: string): AgentTool {
   return {
     name: 'Edit',
     description: 'Find and replace exact strings in a file. By default, old_string must be unique in the file.',
@@ -18,6 +19,14 @@ export function createFileEditTool(): AgentTool {
 
     async execute(rawArgs: unknown) {
       const { file_path, old_string, new_string, replace_all } = rawArgs as z.infer<typeof FileEditParams>;
+
+      if (workingDir) {
+        try {
+          assertSafePath(file_path, workingDir);
+        } catch (error) {
+          return { content: (error as Error).message, isError: true };
+        }
+      }
 
       let content: string;
       try {

@@ -111,7 +111,10 @@ export class Agent {
       );
       // Ensure memory directory exists (fire-and-forget)
       void this.fileMemorySystem.ensureDir().catch(err => {
-        this.logger.debug('Failed to create memory dir', { error: String(err) });
+        this.logger.warn('Memory directory initialization failed — persistent memory disabled', {
+          memoryDir: config.memory?.memoryDir,
+          error: String(err),
+        });
       });
     }
 
@@ -137,7 +140,10 @@ export class Agent {
     // Auto-load skills from directory (fire-and-forget)
     if (config.skills?.skillsDir) {
       void this.skillManager.loadFromDirectory(config.skills.skillsDir).catch(err => {
-        this.logger.debug('Failed to load skills dir', { error: String(err) });
+        this.logger.warn('Skills directory loading failed — skills unavailable', {
+          skillsDir: config.skills.skillsDir,
+          error: String(err),
+        });
       });
     }
 

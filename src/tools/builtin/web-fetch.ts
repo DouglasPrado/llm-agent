@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AgentTool } from '../../contracts/entities/agent-tool.js';
 
 const DEFAULT_MAX_CHARS = 50_000;
+const MAX_REDIRECT_HOPS = 5;
 
 /** Validate URL against SSRF attack vectors. Returns null if safe, error message if blocked. */
 function validateFetchUrl(rawUrl: string): string | null {
@@ -33,6 +34,20 @@ function validateFetchUrl(rawUrl: string): string | null {
     if (a === 172 && b >= 16 && b <= 31) return 'Blocked private range 172.16.0.0/12';
     if (a === 169 && b === 254) return 'Blocked link-local range (cloud metadata)';
     if (a === 0) return 'Blocked 0.0.0.0/8';
+  }
+
+  // IPv6 checks — strip brackets for pattern matching
+  const ipv6Bare = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+
+  // Link-local: fe80::/10 (fe80 – febf)
+  if (/^fe[89ab]/i.test(ipv6Bare)) return 'Blocked IPv6 link-local address (fe80::/10)';
+  // ULA (unique local): fc00::/7 (fc and fd prefixes)
+  if (/^f[cd]/i.test(ipv6Bare)) return 'Blocked IPv6 private range (fc00::/7)';
+  // IPv4-mapped: ::ffff:a.b.c.d — re-validate the embedded IPv4 address
+  const ipv4MappedMatch = ipv6Bare.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  if (ipv4MappedMatch) {
+    const embeddedResult = validateFetchUrl(`http://${ipv4MappedMatch[1]}/`);
+    if (embeddedResult) return `Blocked IPv4-mapped IPv6: ${embeddedResult}`;
   }
 
   return null;
@@ -74,11 +89,41 @@ export function createWebFetchTool(): AgentTool {
       if (blocked) return { content: blocked, isError: true };
 
       try {
-        const response = await fetch(url, {
-          signal,
-          headers: { 'User-Agent': 'AgentX-SDK/1.0' },
-          redirect: 'follow',
-        });
+        // Follow redirects manually so each hop is validated against SSRF rules.
+        let currentUrl = url;
+        let response!: Response;
+
+        for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+          if (hop === MAX_REDIRECT_HOPS) {
+            return { content: `SSRF check: too many redirects (>${MAX_REDIRECT_HOPS})`, isError: true };
+          }
+
+          response = await fetch(currentUrl, {
+            signal,
+            headers: { 'User-Agent': 'AgentX-SDK/1.0' },
+            redirect: 'manual',
+          });
+
+          if (response.status >= 300 && response.status < 400) {
+            const location = response.headers.get('location');
+            if (!location) {
+              return { content: 'Redirect without Location header', isError: true };
+            }
+            let nextUrl: string;
+            try {
+              nextUrl = new URL(location, currentUrl).href;
+            } catch {
+              return { content: `Redirect blocked: invalid URL ${location}`, isError: true };
+            }
+            const redirectBlocked = validateFetchUrl(nextUrl);
+            if (redirectBlocked) {
+              return { content: `Redirect blocked: ${redirectBlocked}`, isError: true };
+            }
+            currentUrl = nextUrl;
+            continue;
+          }
+          break;
+        }
 
         if (!response.ok) {
           return { content: `HTTP ${response.status}: ${response.statusText}`, isError: true };
