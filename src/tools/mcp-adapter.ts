@@ -412,25 +412,25 @@ export class MCPAdapter {
   private async healthCheck(name: string): Promise<void> {
     const conn = this.connections.get(name);
     if (!conn) return;
+    // Skip if a reconnect is already in progress — prevents concurrent reconnects.
+    if (conn.status === 'reconnecting') return;
 
     try {
       await conn.client.listTools();
       conn.status = 'connected';
       conn.lastError = undefined;
     } catch (error) {
-      conn.status = 'error';
+      // Set reconnecting BEFORE firing attemptReconnect to close the race window.
+      conn.status = 'reconnecting';
       conn.lastError = error instanceof Error ? error.message : String(error);
-
-      // Attempt reconnection
       void this.attemptReconnect(name);
     }
   }
 
   private async attemptReconnect(name: string): Promise<void> {
     const conn = this.connections.get(name);
-    if (!conn || conn.status === 'reconnecting') return;
-
-    conn.status = 'reconnecting';
+    if (!conn) return;
+    // Status is already 'reconnecting' (set atomically in healthCheck).
     const maxRetries = conn.config.maxRetries ?? 3;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
