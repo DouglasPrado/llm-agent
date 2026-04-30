@@ -310,6 +310,38 @@ describe('StreamingToolExecutor', () => {
     expect(receivedArgs[1]).toEqual({ input: 'hello' });
   });
 
+  describe('non-null safety on result/duration (issue #27)', () => {
+    function injectBrokenCompletedTool(streaming: StreamingToolExecutor): void {
+      const tools = (streaming as unknown as { tools: Array<Record<string, unknown>> }).tools;
+      tools.push({
+        id: 'broken',
+        name: 'test_tool',
+        args: '{}',
+        parsedArgs: {},
+        isSafe: true,
+        status: 'completed',
+        // result and duration intentionally omitted to simulate invariant violation
+        progressEvents: [],
+      });
+    }
+
+    it('getCompletedResults should throw instead of silently yielding undefined result', () => {
+      const executor = new ToolExecutor();
+      const streaming = new StreamingToolExecutor(executor);
+      injectBrokenCompletedTool(streaming);
+
+      expect(() => [...streaming.getCompletedResults()]).toThrow(/result.*duration|not set/i);
+    });
+
+    it('getRemainingResults should throw instead of silently yielding undefined result', async () => {
+      const executor = new ToolExecutor();
+      const streaming = new StreamingToolExecutor(executor);
+      injectBrokenCompletedTool(streaming);
+
+      await expect(async () => {
+        for await (const _ of streaming.getRemainingResults()) { /* drain */ }
+      }).rejects.toThrow(/result.*duration|not set/i);
+    });
   it('getCompletedResults should skip tool with undefined result despite completed status (issue #27)', () => {
     const executor = new ToolExecutor();
     const streaming = new StreamingToolExecutor(executor);
