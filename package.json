@@ -50,11 +50,16 @@
   "optionalDependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
   },
+  "overrides": {
+    "hono": ">=4.12.14",
+    "@hono/node-server": ">=1.19.13",
+    "postcss": ">=8.5.10"
+  },
   "pnpm": {
     "overrides": {
       "hono": ">=4.12.14",
-      "postcss": ">=8.5.10",
-      "vite": ">=6.4.2"
+      "@hono/node-server": ">=1.19.13",
+      "postcss": ">=8.5.10"
     },
     "onlyBuiltDependencies": [
       "better-sqlite3"
