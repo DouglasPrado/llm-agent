@@ -73,12 +73,9 @@ export class StreamingToolExecutor {
     for (const tool of this.tools) {
       if (tool.status === 'completed') {
         tool.status = 'yielded';
-        yield {
-          id: tool.id,
-          name: tool.name,
-          result: tool.result!,
-          duration: tool.duration!,
-        };
+        if (tool.result !== undefined && tool.duration !== undefined) {
+          yield { id: tool.id, name: tool.name, result: tool.result, duration: tool.duration };
+        }
       } else if (tool.status !== 'yielded') {
         break;
       }
@@ -108,12 +105,9 @@ export class StreamingToolExecutor {
       }
 
       tool.status = 'yielded';
-      yield {
-        id: tool.id,
-        name: tool.name,
-        result: tool.result!,
-        duration: tool.duration!,
-      };
+      if (tool.result !== undefined && tool.duration !== undefined) {
+        yield { id: tool.id, name: tool.name, result: tool.result, duration: tool.duration };
+      }
     }
   }
 
