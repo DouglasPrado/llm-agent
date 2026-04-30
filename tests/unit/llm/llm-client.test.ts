@@ -277,6 +277,35 @@ describe('LLMClient', () => {
       expect(init.signal).toBeInstanceOf(AbortSignal);
     });
 
+    it('uses timeoutMs from LLMClientConfig instead of hardcoded default (issue #29)', async () => {
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const customClient = new LLMClient({
+        apiKey: 'test-key', model: 'test/model', baseUrl: 'https://api.test.com/v1',
+        timeoutMs: 30_000,
+      } as any);
+      mockFetch(new Response(JSON.stringify({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      }), { status: 200 }));
+
+      await customClient.chat({ messages: [{ role: 'user', content: 'Hi' }] });
+
+      expect(timeoutSpy).toHaveBeenCalledWith(30_000);
+    });
+
+    it('uses default 120000ms timeout when timeoutMs is not specified (issue #29)', async () => {
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+      mockFetch(new Response(JSON.stringify({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      }), { status: 200 }));
+
+      await client.chat({ messages: [{ role: 'user', content: 'Hi' }] });
+
+      expect(timeoutSpy).toHaveBeenCalledWith(120_000);
+    });
+
     it('flushes UTF-8 decoder at end of stream so no trailing bytes are dropped', async () => {
       // Build a response whose last chunk is the continuation of a multibyte char.
       // The emoji '😀' is 4 bytes in UTF-8: 0xF0 0x9F 0x98 0x80
