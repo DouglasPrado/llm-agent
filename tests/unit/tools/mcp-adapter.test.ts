@@ -758,6 +758,9 @@ describe('MCPAdapter', () => {
       expect(result).toEqual([]);  // graceful fallback for list operation
 
       delete (mockClient as Record<string, unknown>).listResources;
+    });
+  });
+
   describe('healthCheck race condition (issue #24)', () => {
     it('concurrent healthCheck fires should not start multiple reconnect attempts', async () => {
       // Regression test: if healthCheck fires while a reconnect is in progress,

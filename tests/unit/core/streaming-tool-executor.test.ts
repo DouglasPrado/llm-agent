@@ -342,6 +342,8 @@ describe('StreamingToolExecutor', () => {
         for await (const _ of streaming.getRemainingResults()) { /* drain */ }
       }).rejects.toThrow(/result.*duration|not set/i);
     });
+  });
+
   it('getCompletedResults should skip tool with undefined result despite completed status (issue #27)', () => {
     const executor = new ToolExecutor();
     const streaming = new StreamingToolExecutor(executor);

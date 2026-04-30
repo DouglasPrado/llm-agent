@@ -141,7 +141,7 @@ export class Agent {
     if (config.skills?.skillsDir) {
       void this.skillManager.loadFromDirectory(config.skills.skillsDir).catch(err => {
         this.logger.warn('Skills directory loading failed — skills unavailable', {
-          skillsDir: config.skills.skillsDir,
+          skillsDir: config.skills?.skillsDir,
           error: String(err),
         });
       });

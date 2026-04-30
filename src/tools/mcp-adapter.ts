@@ -7,7 +7,6 @@ import { jsonSchemaToZod } from './json-schema-to-zod.js';
 
 /** Validated shape of listResources server response. */
 const ListResourcesResultSchema = z.object({
-const MCPResourceListSchema = z.object({
   resources: z.array(z.object({
     uri: z.string(),
     name: z.string(),
@@ -32,20 +31,6 @@ const GetPromptResultSchema = z.object({
       z.string(),
       z.object({ type: z.string(), text: z.string().optional() }).passthrough(),
     ]),
-  })),
-});
-
-const MCPResourceReadSchema = z.object({
-  contents: z.array(z.object({
-    text: z.string().optional(),
-    uri: z.string(),
-  })),
-});
-
-const MCPGetPromptSchema = z.object({
-  messages: z.array(z.object({
-    role: z.string(),
-    content: z.union([z.string(), z.object({ type: z.string(), text: z.string().optional() }).passthrough()]),
   })),
 });
 
