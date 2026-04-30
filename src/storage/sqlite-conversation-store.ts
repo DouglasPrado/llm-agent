@@ -63,7 +63,12 @@ function rowToMessage(row: ConversationRow): ChatMessage {
 
   let toolCalls: ChatMessage['toolCalls'];
   if (row.tool_calls) {
-    try { toolCalls = JSON.parse(row.tool_calls); } catch { toolCalls = undefined; }
+    try {
+      toolCalls = JSON.parse(row.tool_calls);
+    } catch (e) {
+      console.warn(`[SQLiteConversationStore] Invalid tool_calls JSON — row.id=${row.id}, thread=${row.thread_id}`, e);
+      toolCalls = undefined;
+    }
   }
 
   return {
