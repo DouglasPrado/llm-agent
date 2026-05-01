@@ -86,6 +86,10 @@ export class Agent {
       // Database will be initialized for knowledge, reuse it for conversations
       this.conversations = new ConversationManager(this.getDefaultConversationStore());
     } else {
+      this.logger.warn(
+        'knowledge.enabled=false: conversation history will not persist across restarts. ' +
+        'Pass conversation.store explicitly to enable persistence without knowledge.',
+      );
       this.conversations = new ConversationManager();
     }
 
