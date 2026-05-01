@@ -1,6 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import type { AgentTool } from '../../contracts/entities/agent-tool.js';
+import { assertSafePath } from './path-guard.js';
 
 const MAX_FILE_SIZE = 1_000_000; // 1MB
 const DEFAULT_LIMIT = 2000;
@@ -11,7 +12,7 @@ const FileReadParams = z.object({
   limit: z.number().optional().describe('Number of lines to read. Default: 2000'),
 });
 
-export function createFileReadTool(): AgentTool {
+export function createFileReadTool(workingDir?: string): AgentTool {
   return {
     name: 'Read',
     description: 'Read file contents with line numbers. Supports partial reads with offset and limit.',
@@ -22,6 +23,14 @@ export function createFileReadTool(): AgentTool {
 
     async execute(rawArgs: unknown) {
       const { file_path, offset, limit } = rawArgs as z.infer<typeof FileReadParams>;
+
+      if (workingDir) {
+        try {
+          assertSafePath(file_path, workingDir);
+        } catch (error) {
+          return { content: (error as Error).message, isError: true };
+        }
+      }
 
       try {
         const fileStat = await stat(file_path);
