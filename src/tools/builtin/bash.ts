@@ -55,8 +55,17 @@ export function createBashTool(options: BashToolOptions = {}): AgentTool {
       const { command, timeout } = BashParams.parse(rawArgs);
 
       if (allowedCommands && allowedCommands.length > 0) {
+        // Reject shell metacharacters that allow command chaining/injection even when the
+        // first token is in the allow-list (e.g. "ls; rm -rf /", "echo hi | cat").
+        const DANGEROUS_METACHAR = /[;&|`$<>()\n\\]/;
+        if (DANGEROUS_METACHAR.test(command)) {
+          return {
+            content: 'Command contains forbidden shell metacharacters',
+            isError: true,
+          };
+        }
         const firstToken = command.trimStart().split(/\s+/)[0] ?? '';
-        const allowed = allowedCommands.some(prefix => firstToken === prefix || firstToken.startsWith(prefix + ' '));
+        const allowed = allowedCommands.some(prefix => firstToken === prefix);
         if (!allowed) {
           return {
             content: `Command not allowed by allowedCommands policy. Allowed prefixes: ${allowedCommands.join(', ')}`,

@@ -81,6 +81,57 @@ describe('builtin/bash', () => {
     });
   });
 
+  describe('metacharacter injection via allowedCommands (issue #46)', () => {
+    // allowedCommands: ['echo'] only — 'ls' is NOT in the list
+    const tool = createBashTool({ allowedCommands: ['echo'] });
+
+    it('blocks semicolon chaining: echo hi; ls /', async () => {
+      // 'echo' is allowed but ';' lets 'ls' bypass the allowedCommands check
+      const result = await tool.execute({ command: 'echo hi; ls /' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+      expect(parsed.content).toMatch(/metachar|forbidden|not allowed/i);
+    });
+
+    it('blocks && chaining: echo hi && ls /', async () => {
+      const result = await tool.execute({ command: 'echo hi && ls /' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('blocks pipe: echo hi | cat', async () => {
+      const result = await tool.execute({ command: 'echo hi | cat' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('blocks backtick substitution: echo `whoami`', async () => {
+      const result = await tool.execute({ command: 'echo `whoami`' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('blocks $() substitution: echo $(whoami)', async () => {
+      const result = await tool.execute({ command: 'echo $(whoami)' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('still allows safe allowed commands without metacharacters', async () => {
+      const result = await tool.execute({ command: 'echo hello' }, signal);
+      const content = typeof result === 'string' ? result : result.content;
+      expect(content).toContain('hello');
+    });
+
+    it('does NOT block metacharacters when allowedCommands is not set', async () => {
+      const unrestricted = createBashTool();
+      const result = await unrestricted.execute({ command: 'echo "line1" && echo "line2"' }, signal);
+      const content = typeof result === 'string' ? result : result.content;
+      expect(content).toContain('line1');
+      expect(content).toContain('line2');
+    });
+  });
+
   describe('timeout parameter bounds (issue #9)', () => {
     it('should reject timeout=0 (would disable exec timeout)', async () => {
       const tool = createBashTool();
