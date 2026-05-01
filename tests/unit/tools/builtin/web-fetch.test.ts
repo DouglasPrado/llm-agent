@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createWebFetchTool } from '../../../../src/tools/builtin/web-fetch.js';
+import { createWebFetchTool, type DnsResolver } from '../../../../src/tools/builtin/web-fetch.js';
 
 describe('builtin/web-fetch', () => {
   const signal = new AbortController().signal;
@@ -145,6 +145,57 @@ describe('builtin/web-fetch', () => {
         const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
         expect(parsed.isError, `should block ${url}`).toBe(true);
       }
+    });
+
+    // --- issue #49: DNS rebinding mitigation ---
+
+    function mockDns(v4: string[], v6: string[] = []): DnsResolver {
+      return {
+        resolve4: vi.fn().mockResolvedValue(v4),
+        resolve6: vi.fn().mockResolvedValue(v6),
+      };
+    }
+    function failingDns(): DnsResolver {
+      return {
+        resolve4: vi.fn().mockRejectedValue(new Error('NXDOMAIN')),
+        resolve6: vi.fn().mockRejectedValue(new Error('NXDOMAIN')),
+      };
+    }
+
+    it('blocks hostname whose DNS resolves to cloud metadata IP (issue #49)', async () => {
+      const tool = createWebFetchTool({ dnsResolver: mockDns(['169.254.169.254']) });
+      const result = await tool.execute({ url: 'http://evil-rebind.com/' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+      expect(parsed.content).toMatch(/DNS|blocked|rebind/i);
+    });
+
+    it('blocks hostname whose DNS resolves to private 10.x.x.x range (issue #49)', async () => {
+      const tool = createWebFetchTool({ dnsResolver: mockDns(['10.0.0.1']) });
+      const result = await tool.execute({ url: 'http://internal.corp.example/' }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('allows hostname whose DNS resolves to a public IP (issue #49)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('safe content', { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+      );
+      const tool = createWebFetchTool({ dnsResolver: mockDns(['93.184.216.34']) });
+      const result = await tool.execute({ url: 'http://example.com/' }, signal);
+      const content = typeof result === 'string' ? result : result.content;
+      expect(content).toContain('safe content');
+    });
+
+    it('allows fetch when DNS lookup fails — fail-open (issue #49)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('ok', { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+      );
+      const tool = createWebFetchTool({ dnsResolver: failingDns() });
+      const result = await tool.execute({ url: 'http://some-domain.example/' }, signal);
+      // DNS failure → fail-open → fetch proceeds
+      const content = typeof result === 'string' ? result : result.content;
+      expect(content).toContain('ok');
     });
 
     it('allows valid redirect to safe HTTPS URL', async () => {

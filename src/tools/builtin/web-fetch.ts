@@ -53,6 +53,56 @@ function validateFetchUrl(rawUrl: string): string | null {
   return null;
 }
 
+/** IPv4/IPv6 literal patterns — already validated by validateFetchUrl. */
+const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+/** Minimal DNS resolver interface — injectable for testing. */
+export interface DnsResolver {
+  resolve4(hostname: string): Promise<string[]>;
+  resolve6(hostname: string): Promise<string[]>;
+}
+
+async function defaultDnsResolver(): Promise<DnsResolver> {
+  const mod = await import('node:dns/promises');
+  return { resolve4: mod.resolve4, resolve6: mod.resolve6 };
+}
+
+/**
+ * Pre-resolve DNS and validate each resolved IP against the SSRF blocklist.
+ * Mitigates DNS rebinding: an attacker domain switches from a public IP to a
+ * private IP after the static check but before the actual fetch.
+ * Fails open: DNS errors allow the fetch to proceed (preserves availability).
+ */
+async function checkDnsRebinding(rawUrl: string, resolver: DnsResolver): Promise<string | null> {
+  let hostname: string;
+  try {
+    hostname = new URL(rawUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  // IP literals are already validated statically by validateFetchUrl
+  if (IPV4_RE.test(hostname) || hostname.startsWith('[') || hostname.includes(':')) return null;
+
+  try {
+    const [v4Result, v6Result] = await Promise.allSettled([
+      resolver.resolve4(hostname),
+      resolver.resolve6(hostname),
+    ]);
+    const addresses: string[] = [
+      ...(v4Result.status === 'fulfilled' ? v4Result.value : []),
+      ...(v6Result.status === 'fulfilled' ? v6Result.value : []),
+    ];
+    for (const addr of addresses) {
+      const fakeUrl = `http://${addr.includes(':') ? `[${addr}]` : addr}/`;
+      const err = validateFetchUrl(fakeUrl);
+      if (err) return `DNS rebinding blocked: ${hostname} resolved to ${addr} — ${err}`;
+    }
+  } catch {
+    // DNS failure → fail-open
+  }
+  return null;
+}
+
 const WebFetchParams = z.object({
   url: z.string().describe('URL to fetch'),
   max_chars: z.number().optional().describe('Max characters to return. Default: 50000.'),
@@ -73,7 +123,14 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-export function createWebFetchTool(): AgentTool {
+export function createWebFetchTool(options?: { dnsResolver?: DnsResolver }): AgentTool {
+  let resolverPromise: Promise<DnsResolver> | null = null;
+  const getResolver = (): Promise<DnsResolver> => {
+    if (options?.dnsResolver) return Promise.resolve(options.dnsResolver);
+    if (!resolverPromise) resolverPromise = defaultDnsResolver();
+    return resolverPromise;
+  };
+
   return {
     name: 'WebFetch',
     description: 'Fetch content from a URL. Returns text content (HTML is stripped to plain text).',
@@ -87,6 +144,10 @@ export function createWebFetchTool(): AgentTool {
 
       const blocked = validateFetchUrl(url);
       if (blocked) return { content: blocked, isError: true };
+
+      const resolver = await getResolver();
+      const dnsBlocked = await checkDnsRebinding(url, resolver);
+      if (dnsBlocked) return { content: dnsBlocked, isError: true };
 
       try {
         // Follow redirects manually so each hop is validated against SSRF rules.
