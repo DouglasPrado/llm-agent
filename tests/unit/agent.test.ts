@@ -174,4 +174,43 @@ describe('Agent', () => {
     loadSpy.mockRestore();
     warnSpy.mockRestore();
   });
+
+  // --- issue #52: silent in-memory ConversationManager fallback ---
+
+  it('emits console.warn when knowledge.enabled=false and no conversation.store (issue #52)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    Agent.create({
+      apiKey: 'test-key',
+      logLevel: 'info',
+      knowledge: { enabled: false },
+      memory: { enabled: false },
+      // no conversation.store — should warn about non-persistent history
+    });
+
+    const persistenceWarn = warnSpy.mock.calls.find(
+      c => String(c[0]).toLowerCase().includes('persist') || String(c[0]).toLowerCase().includes('knowledge'),
+    );
+    expect(persistenceWarn).toBeDefined();
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT warn when conversation.store is explicitly provided (issue #52)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mockStore = { getMessages: vi.fn(), addMessage: vi.fn(), getOrCreateThread: vi.fn(), clear: vi.fn() };
+
+    Agent.create({
+      apiKey: 'test-key',
+      logLevel: 'info',
+      knowledge: { enabled: false },
+      memory: { enabled: false },
+      conversation: { store: mockStore as any },
+    });
+
+    const persistenceWarn = warnSpy.mock.calls.find(
+      c => String(c[0]).toLowerCase().includes('persist') || String(c[0]).toLowerCase().includes('knowledge'),
+    );
+    expect(persistenceWarn).toBeUndefined();
+    warnSpy.mockRestore();
+  });
 });
