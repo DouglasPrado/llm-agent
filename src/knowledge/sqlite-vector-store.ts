@@ -2,6 +2,9 @@ import type { VectorStore } from '../contracts/entities/stores.js';
 import type { KnowledgeChunk, RetrievedKnowledge } from '../contracts/entities/knowledge.js';
 import type { SQLiteDatabase } from '../storage/sqlite-database.js';
 
+/** Maximum rows scanned per search call to bound memory usage. */
+const MAX_SCAN = 10_000;
+
 /**
  * SQLite implementation of VectorStore with brute-force cosine similarity.
  */
@@ -47,7 +50,9 @@ export class SQLiteVectorStore implements VectorStore {
   }
 
   search(queryEmbedding: Float32Array, topK: number): RetrievedKnowledge[] {
-    const rows = this.database.db.prepare('SELECT * FROM vectors').all() as VectorRow[];
+    const rows = this.database.db.prepare(
+      'SELECT * FROM vectors ORDER BY created_at DESC LIMIT ?'
+    ).all(MAX_SCAN) as VectorRow[];
 
     const scored = rows.map(row => {
       const embedding = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);

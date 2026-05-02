@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SQLiteDatabase } from '../../../src/storage/sqlite-database.js';
 import { SQLiteVectorStore } from '../../../src/knowledge/sqlite-vector-store.js';
 import type { KnowledgeChunk } from '../../../src/contracts/entities/knowledge.js';
@@ -78,5 +78,15 @@ describe('SQLiteVectorStore', () => {
     const results = store.search(query, 1);
     expect(results[0]!.score).toBeGreaterThanOrEqual(0);
     expect(results[0]!.score).toBeLessThanOrEqual(1);
+  });
+
+  it('search() uses a LIMIT clause to bound the number of scanned rows (#60)', () => {
+    const prepareSpy = vi.spyOn(database.db, 'prepare');
+    store.search(new Float32Array([1, 0, 0, 0]), 5);
+    const sqlCalls = prepareSpy.mock.calls.map(c => (c[0] as string).toUpperCase());
+    const scanSql = sqlCalls.find(sql => sql.includes('FROM VECTORS'));
+    expect(scanSql).toBeDefined();
+    expect(scanSql).toMatch(/LIMIT/);
+    prepareSpy.mockRestore();
   });
 });
