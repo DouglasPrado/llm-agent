@@ -50,8 +50,9 @@ export function createGrepTool(): AgentTool {
       const maxResults = max_results ?? DEFAULT_MAX_RESULTS;
 
       // Reject patterns that can cause catastrophic backtracking (ReDoS).
-      // Catches: quantified groups (a+)+, consecutive quantifiers a+*, quantified classes [a-z]*.
-      const REDOS_RISK = /(\(.*[+*?]\)|[+*?]{2,}|\[\^?.*\]\*)/;
+      // Catches: quantified groups (a+)+, consecutive quantifiers a+*, quantified classes [a-z]*,
+      // and alternation groups with external quantifier (a|ab)*.
+      const REDOS_RISK = /(\(.*[+*?]\)|[+*?]{2,}|\[\^?.*\]\*|\([^)]*\|[^)]*\)[+*?{])/;
       if (REDOS_RISK.test(pattern)) {
         return { content: 'Pattern too complex — potential ReDoS risk', isError: true };
       }
