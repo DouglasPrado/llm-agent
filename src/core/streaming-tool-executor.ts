@@ -51,7 +51,23 @@ export class StreamingToolExecutor {
   /** Called during LLM streaming when a tool_call chunk arrives */
   addTool(id: string, name: string, args: string): void {
     let parsedArgs: unknown;
-    try { parsedArgs = JSON.parse(args); } catch { parsedArgs = {}; }
+    try {
+      parsedArgs = JSON.parse(args);
+    } catch (e) {
+      this.tools.push({
+        id, name, args,
+        parsedArgs: {},
+        isSafe: true,
+        status: 'completed',
+        result: {
+          content: `Tool call arguments are not valid JSON: ${(e as Error).message}`,
+          isError: true,
+        },
+        duration: 0,
+        progressEvents: [],
+      });
+      return;
+    }
 
     const toolDef = this.executor.listTools().find(t => t.name === name);
     const isSafe = toolDef
