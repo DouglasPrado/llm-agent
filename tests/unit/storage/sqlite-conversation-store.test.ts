@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SQLiteDatabase } from '../../../src/storage/sqlite-database.js';
 import { SQLiteConversationStore } from '../../../src/storage/sqlite-conversation-store.js';
 import type { ChatMessage } from '../../../src/contracts/entities/chat-message.js';
+import type { Logger } from '../../../src/utils/logger.js';
 
 function msg(role: ChatMessage['role'], content: string, pinned = false): ChatMessage {
   return { role, content, pinned, createdAt: Date.now() };
@@ -134,5 +135,32 @@ describe('SQLiteConversationStore', () => {
     expect(messages[0]!.content).toBe('first');
     expect(messages[1]!.content).toBe('second');
     expect(messages[2]!.content).toBe('third');
+  });
+
+  it('should use injected logger.warn instead of console.warn directly (#63)', () => {
+    const warnMessages: string[] = [];
+    const customLogger: Logger = {
+      level: 'silent',
+      debug: () => {},
+      info: () => {},
+      warn: (msg: string) => { warnMessages.push(msg); },
+      error: () => {},
+      child: () => customLogger,
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const storeWithLogger = new (SQLiteConversationStore as any)(database, customLogger) as SQLiteConversationStore;
+    database.db.prepare(`
+      INSERT INTO conversations (thread_id, role, content, tool_calls, tool_call_id, pinned, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('t-custom-logger', 'assistant', '""', 'NOT_VALID_JSON', null, 0, Date.now());
+
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    storeWithLogger.listThread('t-custom-logger');
+    const consoleWarnCalled = consoleSpy.mock.calls.length > 0;
+    consoleSpy.mockRestore();
+
+    expect(consoleWarnCalled).toBe(false);
+    expect(warnMessages).toHaveLength(1);
+    expect(warnMessages[0]).toMatch(/tool_calls/i);
   });
 });
