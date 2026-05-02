@@ -95,4 +95,28 @@ describe('builtin/grep', () => {
       expect(parsed.isError).toBeFalsy();
     });
   });
+
+  describe('ReDoS protection — alternation with external quantifier (issue #62)', () => {
+    it('should reject (a|ab)*b — alternation group with * quantifier', async () => {
+      const tool = createGrepTool();
+      const result = await tool.execute({ pattern: '(a|ab)*b', path: tempDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+      expect(parsed.content).toMatch(/complex|ReDoS/i);
+    });
+
+    it('should reject (a|a)+ — alternation group with + quantifier', async () => {
+      const tool = createGrepTool();
+      const result = await tool.execute({ pattern: '(a|a)+', path: tempDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+    });
+
+    it('should still accept (foo|bar) without external quantifier', async () => {
+      const tool = createGrepTool();
+      const result = await tool.execute({ pattern: '(function|class)', path: tempDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBeFalsy();
+    });
+  });
 });
