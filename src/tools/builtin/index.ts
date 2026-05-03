@@ -36,24 +36,24 @@ export const builtinTools = {
   askUser: createAskUserTool,
 
   /** All tools except askUser (which needs a callback) */
-  all(): AgentTool[] {
+  all(workingDir?: string): AgentTool[] {
     return [
       createGlobTool(),
       createGrepTool(),
       createFileReadTool(),
-      createFileWriteTool(),
-      createFileEditTool(),
+      createFileWriteTool(workingDir),
+      createFileEditTool(workingDir),
       createBashTool(),
       createWebFetchTool(),
     ];
   },
 
   /** File operation tools: read + write + edit + glob + grep */
-  fileOps(): AgentTool[] {
+  fileOps(workingDir?: string): AgentTool[] {
     return [
       createFileReadTool(),
-      createFileWriteTool(),
-      createFileEditTool(),
+      createFileWriteTool(workingDir),
+      createFileEditTool(workingDir),
       createGlobTool(),
       createGrepTool(),
     ];
