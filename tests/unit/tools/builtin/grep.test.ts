@@ -58,6 +58,38 @@ describe('builtin/grep', () => {
     expect(lines.length).toBeLessThanOrEqual(2); // 1 match + possible context
   });
 
+  describe('path containment (issue #68)', () => {
+    it('should block path outside workingDir when workingDir is set', async () => {
+      const tool = createGrepTool(tempDir);
+      const outsideDir = tmpdir();
+      const result = await tool.execute({ pattern: 'root', path: outsideDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBe(true);
+      expect(parsed.content).toMatch(/traversal|outside|blocked/i);
+    });
+
+    it('should allow path inside workingDir when workingDir is set', async () => {
+      const tool = createGrepTool(tempDir);
+      const result = await tool.execute({ pattern: 'function', path: join(tempDir, 'src') }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBeFalsy();
+    });
+
+    it('should default to workingDir when no path is given and workingDir is set', async () => {
+      const tool = createGrepTool(tempDir);
+      const result = await tool.execute({ pattern: 'function' }, signal);
+      const content = typeof result === 'string' ? result : result.content;
+      expect(content).toContain('index.ts');
+    });
+
+    it('should be backward compatible when no workingDir is set', async () => {
+      const tool = createGrepTool();
+      const result = await tool.execute({ pattern: 'function', path: tempDir }, signal);
+      const parsed = typeof result === 'string' ? { content: result, isError: false } : result;
+      expect(parsed.isError).toBeFalsy();
+    });
+  });
+
   describe('ReDoS protection (issue #7)', () => {
     it('should reject patterns with nested quantifiers like (a+)+', async () => {
       const tool = createGrepTool();
