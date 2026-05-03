@@ -1,10 +1,84 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { ToolExecutor } from '../../../../src/tools/tool-executor.js';
 import { builtinTools } from '../../../../src/tools/builtin/index.js';
 import { Agent } from '../../../../src/agent.js';
 
 describe('Builtin tools integration', () => {
   afterEach(() => { vi.restoreAllMocks(); });
+
+  describe('path containment via workingDir (issue #69)', () => {
+    let workingDir: string;
+
+    beforeEach(async () => {
+      workingDir = await mkdtemp(join(tmpdir(), 'builtin-all-'));
+      await writeFile(join(workingDir, 'file.txt'), 'hello');
+    });
+
+    afterEach(async () => {
+      await rm(workingDir, { recursive: true, force: true });
+    });
+
+    it('all(workingDir) — Write tool blocks paths outside workingDir', async () => {
+      const executor = new ToolExecutor();
+      builtinTools.all(workingDir).forEach(t => executor.register(t));
+
+      const result = await executor.execute('Write', {
+        file_path: join(tmpdir(), 'escaped.txt'),
+        content: 'bad',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/traversal|outside|blocked/i);
+    });
+
+    it('all(workingDir) — Write tool allows paths inside workingDir', async () => {
+      const executor = new ToolExecutor();
+      builtinTools.all(workingDir).forEach(t => executor.register(t));
+
+      const result = await executor.execute('Write', {
+        file_path: join(workingDir, 'safe.txt'),
+        content: 'ok',
+      });
+      expect(result.isError).toBeFalsy();
+    });
+
+    it('all(workingDir) — Edit tool blocks paths outside workingDir', async () => {
+      const executor = new ToolExecutor();
+      builtinTools.all(workingDir).forEach(t => executor.register(t));
+
+      const result = await executor.execute('Edit', {
+        file_path: join(tmpdir(), 'escaped.txt'),
+        old_string: 'hello',
+        new_string: 'world',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/traversal|outside|blocked/i);
+    });
+
+    it('all() without workingDir remains backward compatible', async () => {
+      const executor = new ToolExecutor();
+      builtinTools.all().forEach(t => executor.register(t));
+
+      const result = await executor.execute('Write', {
+        file_path: join(workingDir, 'compat.txt'),
+        content: 'ok',
+      });
+      expect(result.isError).toBeFalsy();
+    });
+
+    it('fileOps(workingDir) — Write tool enforces containment', async () => {
+      const executor = new ToolExecutor();
+      builtinTools.fileOps(workingDir).forEach(t => executor.register(t));
+
+      const result = await executor.execute('Write', {
+        file_path: join(tmpdir(), 'escaped.txt'),
+        content: 'bad',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
 
   it('should register all tools and generate valid JSON Schema for LLM', () => {
     const executor = new ToolExecutor();
